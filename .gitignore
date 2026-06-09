@@ -1,0 +1,13 @@
+# Ignore temporary test audio files
+*.mp3
+*.wav
+*.m4a
+
+# Ignore virtual environments (if you use them later)
+venv/
+.venv/
+env/
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
