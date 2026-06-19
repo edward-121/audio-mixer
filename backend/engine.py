@@ -28,12 +28,13 @@ def smooth_transition(song_a_path, song_b_path, output_path, crossfade_seconds=1
 
 if __name__ == "__main__":
 
-    TRACK_1 = "first_song.mp3"
-    TRACK_2 = "second_song.mp3"
+    TRACK_1 = "bones.mp3"
+    TRACK_2 = "savage.mp3"
     FINAL_OUTPUT = "smooth_blend_output.mp3"
     
     if os.path.exists(TRACK_1) and os.path.exists(TRACK_2):
         # Let's do a generous 8-second smooth transition
         smooth_transition(TRACK_1, TRACK_2, FINAL_OUTPUT, crossfade_seconds=8)
     else:
-        print("\n❌ Error: Please place 'first_song.mp3' and 'second_song.mp3' in this folder to test.")
+        # FIXED: Now prints the actual missing file names dynamically
+        print(f"\n❌ Error: Please make sure both '{TRACK_1}' and '{TRACK_2}' are placed in this folder to test.")
