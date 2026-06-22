@@ -61,21 +61,42 @@ def main():
     b_stems = split_song_stems(bass_song)
     i_stems = split_song_stems(inst_song)
 
-    print("\n🎧 STEP 2: Time-stretching elements to match the instrument anchor...")
-    anchor_track = i_stems["other"]
-    
+    print("\n📊 STEP 2: Analyzing Native Tempos & Optimizing Target Grid Speed...")
+    try:
+        print("⏳ Scanning source track tempos...")
+        y_v_raw, sr_v = librosa.load(v_stems["vocals"], duration=60, sr=None)
+        y_b_raw, sr_b = librosa.load(b_stems["bass"], duration=60, sr=None)
+        y_i_raw, sr_i = librosa.load(i_stems["other"], duration=60, sr=None)
+
+        # Clean modern tempo features (Fixes the yellow warning text!)
+        # Update your three scan lines to look exactly like this:
+        bpm_v = librosa.feature.tempo(onset_envelope=librosa.onset.onset_strength(y=y_v_raw, sr=sr_v), sr=sr_v)[0]
+        bpm_b = librosa.feature.tempo(onset_envelope=librosa.onset.onset_strength(y=y_b_raw, sr=sr_b), sr=sr_b)[0]
+        bpm_i = librosa.feature.tempo(onset_envelope=librosa.onset.onset_strength(y=y_i_raw, sr=sr_i), sr=sr_i)[0]
+
+        print(f"🎵 Detected Source Tempos: Vocals={bpm_v:.1f} BPM | Bass={bpm_b:.1f} BPM | Melodies={bpm_i:.1f} BPM")
+
+        # Mathematically calculate the optimized median target speed
+        optimized_target_bpm = float(np.median([bpm_v, bpm_b, bpm_i]))
+        print(f"🎯 Optimized Master Grid Speed Chosen: {optimized_target_bpm:.1f} BPM")
+
+    except Exception as e:
+        print(f"⚠️ Tempo optimization failed, defaulting to 120 BPM. Error: {e}")
+        optimized_target_bpm = 120.0
+
+    print("\n🎚️ STEP 2b: Time-stretching elements to the optimized master grid...")
     aligned_vocals = os.path.join("stem_cache", "tmp_aligned_vocals.wav")
     aligned_bass = os.path.join("stem_cache", "tmp_aligned_bass.wav")
     aligned_inst = os.path.join("stem_cache", "tmp_aligned_inst.wav")
     aligned_drums = os.path.join("stem_cache", "tmp_aligned_drums.wav")
 
-    # Warp the tempos first so the beat grids have identical spacing
-    align_and_match_stems(v_stems["vocals"], anchor_track, aligned_vocals, semitone_shift=0)
-    align_and_match_stems(b_stems["bass"], anchor_track, aligned_bass, semitone_shift=0)
-    align_and_match_stems(i_stems["other"], anchor_track, aligned_inst, semitone_shift=0)
-    align_and_match_stems(i_stems["drums"], anchor_track, aligned_drums, semitone_shift=0)
+    # 🚀 FIX: We pass optimized_target_bpm directly as the second parameter now!
+    align_and_match_stems(v_stems["vocals"], optimized_target_bpm, aligned_vocals, semitone_shift=0)
+    align_and_match_stems(b_stems["bass"], optimized_target_bpm, aligned_bass, semitone_shift=0)
+    align_and_match_stems(i_stems["other"], optimized_target_bpm, aligned_inst, semitone_shift=0)
+    align_and_match_stems(i_stems["drums"], optimized_target_bpm, aligned_drums, semitone_shift=0)
 
-    print("\n🎯 STEP 3: Beat-Grid Mapping & Drop Alignment...")
+    print("\n🎯 STEP 3: Automated Energy Scanning & Auto-Drop Alignment...")
     try:
         # Load time-aligned arrays
         y_vocals, sr = librosa.load(aligned_vocals, sr=None)
@@ -83,66 +104,69 @@ def main():
         y_inst, _ = librosa.load(aligned_inst, sr=sr)
         y_drums, _ = librosa.load(aligned_drums, sr=sr)
 
-        print("⏳ Analyzing downbeats and transient grids...")
-        # Automatically detect the exact timing of every beat (returns sample indices)
+        print("⏳ Mapping beat grids...")
         tempo_inst, beat_samples_inst = librosa.beat.beat_track(y=y_drums, sr=sr, units='samples')
         tempo_voc, beat_samples_voc = librosa.beat.beat_track(y=y_vocals, sr=sr, units='samples')
 
-        total_inst_beats = len(beat_samples_inst)
-        total_voc_beats = len(beat_samples_voc)
+        # --- 🤖 AUTOMATED BEAT DROP DETECTION CODE ---
+        print("⚡ Scanning instrumental track for the ultimate beat drop...")
+        # 1. Compute short-term energy (loudness profile) across the instrumental track
+        hop_length = 512
+        rmse_inst = librosa.feature.rms(y=y_drums, hop_length=hop_length)[0]
+        
+        # 2. Find where the volume increases the fastest (the massive drop transient)
+        energy_diff = np.diff(rmse_inst)
+        max_diff_frame = np.argmax(energy_diff)
+        auto_drop_sample = max_diff_frame * hop_length
+        
+        # 3. Snap that sample to the nearest actual grid beat so it stays perfectly on time
+        closest_inst_beat_idx = np.argmin(np.abs(beat_samples_inst - auto_drop_sample))
+        inst_drop_sample = beat_samples_inst[closest_inst_beat_idx]
+        
+        # 4. Do the same for vocals: find the loudest section (the chorus) to place on the drop
+        rmse_voc = librosa.feature.rms(y=y_vocals, hop_length=hop_length)[0]
+        max_voc_frame = np.argmax(rmse_voc)
+        auto_vocal_sample = max_voc_frame * hop_length
+        closest_voc_beat_idx = np.argmin(np.abs(beat_samples_voc - auto_vocal_sample))
+        vocal_drop_sample = beat_samples_voc[closest_voc_beat_idx]
 
-        print(f"📊 Track Grid: Detected {total_inst_beats} beats in the instrumental background.")
-        print(f"📊 Vocal Grid: Detected {total_voc_beats} beats in the vocal track.")
+        print(f"✨ Auto-Detected Instrumental Drop at: {inst_drop_sample / sr:.2f} seconds (Beat {closest_inst_beat_idx + 1})")
+        print(f"✨ Auto-Detected Vocal Chorus Drop at: {vocal_drop_sample / sr:.2f} seconds (Beat {closest_voc_beat_idx + 1})")
 
-        # Ask the user which beat numbers should lock together for the drop
-        print("\n⚡ CONFIGURING THE BEAT DROP ⚡")
-        print("Example: If the beat drops at beat 32 of the instrumental, and the vocal chorus starts at vocal beat 16, type 32 and 16.")
-        inst_drop_beat = int(input(f"Which instrumental beat is the DROP? (1-{total_inst_beats}): ") or 1) - 1
-        vocal_drop_beat = int(input(f"Which vocal beat lands ON the drop? (1-{total_voc_beats}): ") or 1) - 1
-
-        # Get the precise audio frame index for those target beats
-        inst_drop_sample = beat_samples_inst[inst_drop_beat]
-        vocal_drop_sample = beat_samples_voc[vocal_drop_beat]
-
-        # Calculate the positional shift difference
-        # If difference is positive, vocals need silence padded at the front.
-        # If negative, the vocals need to start *before* the instrumental.
+        # Calculate the alignment offset matrix
         sample_offset = inst_drop_sample - vocal_drop_sample
 
         if sample_offset > 0:
-            # Pad the front of the vocals with silence to push them back to line up with the drop
             y_vocals = np.pad(y_vocals, (sample_offset, 0), mode='constant')
         elif sample_offset < 0:
-            # Pad the front of the instrumentals/bass if the vocals need to hit first
             pad_size = abs(sample_offset)
             y_bass = np.pad(y_bass, (pad_size, 0), mode='constant')
             y_inst = np.pad(y_inst, (pad_size, 0), mode='constant')
             y_drums = np.pad(y_drums, (pad_size, 0), mode='constant')
 
-        # Equalize array sizes for the final matrix merge
+        # Equalize array sizes for mixing
         max_len = max(len(y_vocals), len(y_bass), len(y_inst), len(y_drums))
         y_vocals = np.pad(y_vocals, (0, max_len - len(y_vocals)), mode='constant')
         y_bass = np.pad(y_bass, (0, max_len - len(y_bass)), mode='constant')
         y_inst = np.pad(y_inst, (0, max_len - len(y_inst)), mode='constant')
         y_drums = np.pad(y_drums, (0, max_len - len(y_drums)), mode='constant')
 
-        # Combine into master matrix
+        # Blend channels together
         final_mix = (y_vocals * 0.4) + (y_bass * 0.2) + (y_inst * 0.2) + (y_drums * 0.2)
 
-        # Normalize audio levels
         if np.max(np.abs(final_mix)) > 0:
             final_mix = final_mix / np.max(np.abs(final_mix))
 
-        output_filename = "festival_drop_mashup.mp3"
+        output_filename = "fortnite_autodrop_mashup.mp3"
         sf.write(output_filename, final_mix, sr)
 
         for f in [aligned_vocals, aligned_bass, aligned_inst, aligned_drums]:
             if os.path.exists(f): os.remove(f)
 
-        print(f"\n🎉 Perfect Grid Match! The beat drop is perfectly locked. Output: {output_filename}")
+        print(f"\n🎉 Fortnite Festival Mode Active! AI locked the beat drop completely hands-free: {output_filename}")
 
     except Exception as e:
-        print(f"❌ Failed to align beat-grids. Details: {e}")
+        print(f"❌ Failed to auto-align beat-grids. Details: {e}")
 
 if __name__ == "__main__":
     main()
