@@ -2,9 +2,11 @@ export interface AudioStem {
   id: string;
   songName: string;
   stemType: 'vocals' | 'drums' | 'bass' | 'other';
-  duration: number; // in seconds
+  duration: number;
+  fileUrl: string;
   color: string;
-  fileUrl: string; // 🚀 ADD THIS LINE HERE
+  bpm: number;       
+  key: string;       
 }
 
 export interface TimelineClip {

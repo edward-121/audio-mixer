@@ -145,9 +145,8 @@ export default function StudioBoard() {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    // If we aren't actively moving a specific target block, skip out instantly
     if (!draggingDataRef.current) return;
-    e.preventDefault(); // Stop the browser from attempting to select text on screen
+    e.preventDefault();
 
     const data = draggingDataRef.current;
     const deltaX = e.clientX - data.startX;
@@ -211,9 +210,25 @@ export default function StudioBoard() {
           <h1 className="text-lg font-bold tracking-tight">Fortnite Festival Studio</h1>
         </div>
         <div className="flex items-center gap-3">
+          {/* 🎯 LIVE DYNAMIC PROJECT TARGET MONITOR */}
+          <div className="flex items-center gap-1.5 text-xs font-mono bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded text-neutral-400">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 mr-1">Project Target:</span>
+            <span className="text-purple-400 font-bold">
+              {clips.length > 0
+                ? (clips.reduce((sum, c) => sum + c.stem.bpm, 0) / clips.length).toFixed(1)
+                : "---"}{" "}
+              BPM
+            </span>
+            <span className="text-neutral-600">|</span>
+            <span className="text-emerald-400 font-bold">Smart Match Key</span>
+          </div>
+
           <span className="text-xs font-mono text-neutral-400 bg-neutral-950 px-3 py-1.5 rounded border border-neutral-800">
             Playhead: {currentTime.toFixed(2)}s
           </span>
+
+          {/* ... keeping the rest of the header buttons exactly the same ... */}
+
           <button
             onClick={handleTogglePreview}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition font-medium border ${isPlaying ? 'bg-red-950/40 border-red-800 text-red-400 hover:bg-red-900/60' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white'
@@ -258,16 +273,27 @@ export default function StudioBoard() {
           ) : (
             <div className="flex flex-col gap-2 overflow-y-auto pr-1">
               {stemsPool.length === 0 ? (
-                <p className="text-xs text-neutral-600 text-center py-8">No stems discovered in cache. Head to the Upload center to drop a song track!</p>
+                <p className="text-xs text-neutral-600 text-center py-8">
+                  No stems discovered in cache. Head to the Upload center to drop a song track!
+                </p>
               ) : (
                 stemsPool.map(stem => (
                   <div key={stem.id} className="p-3 bg-neutral-900 border border-neutral-800 rounded-lg flex flex-col gap-2">
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium text-sm truncate max-w-[150px]">{stem.songName}</h4>
-                        <span className="text-[10px] uppercase font-mono text-neutral-400">{stem.stemType}</span>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-medium text-sm truncate pr-1">{stem.songName}</h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] uppercase font-mono text-neutral-400">{stem.stemType}</span>
+                          {/* 🚀 Dynamic Badges for BPM and Key */}
+                          <span className="text-[10px] font-mono text-purple-400 bg-purple-950/30 px-1 rounded border border-purple-900/30">
+                            {stem.bpm} BPM
+                          </span>
+                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/30 px-1 rounded border border-emerald-900/30">
+                            {stem.key}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-xs text-neutral-500 font-mono">{formatTimeLabel(stem.duration)}</span>
+                      <span className="text-xs text-neutral-500 font-mono flex-shrink-0">{formatTimeLabel(stem.duration)}</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-1">
@@ -275,7 +301,7 @@ export default function StudioBoard() {
                         <button
                           key={idx}
                           onClick={() => addClipToTimeline(stem, idx)}
-                          className="text-[10px] bg-neutral-800 hover:bg-purple-950/60 text-neutral-300 py-1 px-1 rounded border border-neutral-700 truncate"
+                          className="text-[10px] bg-neutral-800 hover:bg-purple-950/60 text-neutral-300 py-1 px-1 rounded border border-neutral-700 truncate font-medium"
                         >
                           + {lName.split(' ').pop()}
                         </button>
@@ -317,7 +343,6 @@ export default function StudioBoard() {
                   </div>
 
                   <div className="absolute inset-0 left-44 h-full z-10">
-                    {/* Find this mapped block container */}
                     {clips
                       .filter(c => c.laneIndex === laneIdx)
                       .map(clip => (
@@ -326,20 +351,15 @@ export default function StudioBoard() {
                           onPointerDown={(e) => handlePointerDown(e, clip)}
                           onPointerMove={handlePointerMove}
                           onPointerUp={handlePointerUp}
-
-                          // 🚀 VERIFY THESE TAILWIND CLASSES ARE PRESENT:
                           className={`absolute h-16 top-4 rounded-lg border p-3 flex flex-col justify-between cursor-grab active:cursor-grabbing shadow-md group select-none touch-none will-change-transform ${clip.stem.color}`}
-
                           style={{
                             left: `${clip.startTime * PIXELS_PER_SECOND}px`,
                             width: `${clip.stem.duration * PIXELS_PER_SECOND}px`,
                           }}
                         >
-                          {/* ... keeping inner contents completely the same ... */}
                           <div className="flex justify-between items-center gap-2">
                             <div className="flex flex-col min-w-0">
                               <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
-                              {/* ⚡ Class clip-time-label allows zero-latency direct DOM updates */}
                               <span className="clip-time-label text-[9px] font-mono opacity-70">Starts at: {clip.startTime.toFixed(1)}s</span>
                             </div>
 
