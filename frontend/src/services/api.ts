@@ -58,5 +58,39 @@ export const ApiService = {
             case 'bass': return 'bg-emerald-500/80 border-emerald-400';
             default: return 'bg-purple-500/80 border-purple-400';
         }
+    },
+
+    async uploadAudioStem(file: File): Promise<{ success: boolean; message: string }> {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(`${BACKEND_URL}/api/upload`, {
+            method: "POST",
+            body: formData, // FormData automatically handles multipart headers correctly
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Failed to process audio stem upload.");
+        }
+
+        return response.json();
+    },
+
+    async uploadFullSong(file: File): Promise<{ success: boolean; message: string }> {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(`${BACKEND_URL}/api/upload/song`, {
+            method: "POST",
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Failed to split audio into stems.");
+        }
+
+        return response.json();
     }
 };

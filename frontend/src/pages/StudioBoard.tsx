@@ -1,10 +1,25 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
 import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus } from 'lucide-react';
 
 const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
 const PIXELS_PER_SECOND = 30;
+
+type StemType = AudioStem['stemType'];
+
+type GroupedStemSet = {
+  songName: string;
+  stemsByType: Partial<Record<StemType, AudioStem>>;
+  firstStem?: AudioStem;
+};
+
+const STEM_BUTTONS: Array<{ key: StemType; label: string; laneIndex: number }> = [
+  { key: 'vocals', label: 'Vocals', laneIndex: 0 },
+  { key: 'drums', label: 'Drums', laneIndex: 1 },
+  { key: 'bass', label: 'Bass', laneIndex: 2 },
+  { key: 'other', label: 'Other', laneIndex: 3 },
+];
 
 export default function StudioBoard() {
   const [stemsPool, setStemsPool] = useState<AudioStem[]>([]);
@@ -13,6 +28,7 @@ export default function StudioBoard() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const activeAudioPlayersRef = useRef<{ audio: HTMLAudioElement; timeoutId: number }[]>([]);
@@ -28,6 +44,28 @@ export default function StudioBoard() {
     currentComputedStartTime: number;
   } | null>(null);
 
+  const groupedStems = useMemo<GroupedStemSet[]>(() => {
+    const groups = new Map<string, GroupedStemSet>();
+
+    stemsPool.forEach((stem) => {
+      const songKey = stem.songName.trim() || 'Untitled Track';
+      const existing = groups.get(songKey);
+
+      if (existing) {
+        existing.stemsByType[stem.stemType] = stem;
+        if (!existing.firstStem) existing.firstStem = stem;
+      } else {
+        groups.set(songKey, {
+          songName: songKey,
+          stemsByType: { [stem.stemType]: stem },
+          firstStem: stem,
+        });
+      }
+    });
+
+    return Array.from(groups.values());
+  }, [stemsPool]);
+
   useEffect(() => {
     async function loadRealAudioStems() {
       setIsLoading(true);
@@ -37,7 +75,26 @@ export default function StudioBoard() {
     }
     loadRealAudioStems();
   }, []);
+  const handleFileDropUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
+    const targetFile = files[0];
+    setIsUploading(true);
+
+    try {
+      const result = await ApiService.uploadAudioStem(targetFile);
+      if (result.success) {
+        // 🚀 RE-FETCH INSTANTLY: This pulls the fresh track straight into the pool!
+        const activeStems = await ApiService.getAvailableStems();
+        setStemsPool(activeStems);
+      }
+    } catch (error: any) {
+      alert(error.message || "An unexpected error occurred during audio processing.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -258,12 +315,41 @@ export default function StudioBoard() {
       </header>
 
       <main className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
+        {/* Sidebar Column Container */}
         <aside className="w-72 bg-neutral-900/50 p-4 border-r border-neutral-900 flex flex-col gap-4">
           <div>
             <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">Available Stems</h3>
             <p className="text-xs text-neutral-500 mb-4">Click a track stem below to drop it onto its designated mixing row lane.</p>
           </div>
+
+          {/* 📥 DYNAMIC INTERACTIVE AUDIO DECK UPLOAD DROP-ZONE */}
+          <div className="relative border border-dashed border-neutral-800 hover:border-purple-500/50 bg-neutral-950/40 rounded-lg p-4 transition text-center group cursor-pointer">
+            <input
+              type="file"
+              accept=".mp3,.wav,.ogg"
+              onChange={handleFileDropUpload}
+              disabled={isUploading}
+              className="absolute inset-0 opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed"
+            />
+            {isUploading ? (
+              <div className="flex flex-col items-center justify-center gap-1.5 py-1">
+                <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                <span className="text-[11px] text-neutral-400 font-medium">Analyzing audio matrix specs...</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-1 py-1">
+                <Plus className="w-4 h-4 text-neutral-500 group-hover:text-purple-400 transition" />
+                <span className="text-[11px] text-neutral-400 group-hover:text-neutral-200 font-medium transition">
+                  Import New Audio Stem Track
+                </span>
+                <span className="text-[9px] text-neutral-600 font-mono uppercase tracking-tight">
+                  Supports: WAV, MP3, OGG
+                </span>
+              </div>
+            )}
+          </div>
+
+          <hr className="border-neutral-900 my-1" />
 
           {isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center text-neutral-500 gap-2">
@@ -272,43 +358,57 @@ export default function StudioBoard() {
             </div>
           ) : (
             <div className="flex flex-col gap-2 overflow-y-auto pr-1">
-              {stemsPool.length === 0 ? (
+              {groupedStems.length === 0 ? (
                 <p className="text-xs text-neutral-600 text-center py-8">
                   No stems discovered in cache. Head to the Upload center to drop a song track!
                 </p>
               ) : (
-                stemsPool.map(stem => (
-                  <div key={stem.id} className="p-3 bg-neutral-900 border border-neutral-800 rounded-lg flex flex-col gap-2">
-                    <div className="flex justify-between items-start">
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-medium text-sm truncate pr-1">{stem.songName}</h4>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] uppercase font-mono text-neutral-400">{stem.stemType}</span>
-                          {/* 🚀 Dynamic Badges for BPM and Key */}
-                          <span className="text-[10px] font-mono text-purple-400 bg-purple-950/30 px-1 rounded border border-purple-900/30">
-                            {stem.bpm} BPM
-                          </span>
-                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/30 px-1 rounded border border-emerald-900/30">
-                            {stem.key}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-neutral-500 font-mono flex-shrink-0">{formatTimeLabel(stem.duration)}</span>
-                    </div>
+                groupedStems.map((group) => {
+                  const primaryStem = group.firstStem;
 
-                    <div className="grid grid-cols-2 gap-1">
-                      {lanes.slice(0, 4).map((lName, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => addClipToTimeline(stem, idx)}
-                          className="text-[10px] bg-neutral-800 hover:bg-purple-950/60 text-neutral-300 py-1 px-1 rounded border border-neutral-700 truncate font-medium"
-                        >
-                          + {lName.split(' ').pop()}
-                        </button>
-                      ))}
+                  return (
+                    <div key={group.songName} className="p-3 bg-neutral-900 border border-neutral-800 rounded-lg flex flex-col gap-2">
+                      <div className="flex justify-between items-start">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-medium text-sm truncate pr-1">{group.songName}</h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] uppercase font-mono text-neutral-400">multi-stem</span>
+                            {primaryStem && (
+                              <>
+                                <span className="text-[10px] font-mono text-purple-400 bg-purple-950/30 px-1 rounded border border-purple-900/30">
+                                  {primaryStem.bpm} BPM
+                                </span>
+                                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/30 px-1 rounded border border-emerald-900/30">
+                                  {primaryStem.key}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {primaryStem && (
+                          <span className="text-xs text-neutral-500 font-mono flex-shrink-0">{formatTimeLabel(primaryStem.duration)}</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1">
+                        {STEM_BUTTONS.map(({ key, label, laneIndex }) => {
+                          const stem = group.stemsByType[key];
+                          if (!stem) return null;
+
+                          return (
+                            <button
+                              key={key}
+                              onClick={() => addClipToTimeline(stem, laneIndex)}
+                              className="text-[10px] bg-neutral-800 hover:bg-purple-950/60 text-neutral-300 py-1 px-1 rounded border border-neutral-700 truncate font-medium"
+                            >
+                              + {label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}
