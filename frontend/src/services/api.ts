@@ -92,5 +92,19 @@ export const ApiService = {
         }
 
         return response.json();
+    },
+
+    async deleteCachedStems(songName?: string): Promise<{ success: boolean; message: string }> {
+        const params = songName ? `?songName=${encodeURIComponent(songName)}` : '';
+        const response = await fetch(`${BACKEND_URL}/api/stems${params}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || 'Failed to delete cached stems.');
+        }
+
+        return response.json();
     }
 };

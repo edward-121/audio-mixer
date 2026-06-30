@@ -2,6 +2,7 @@
 *.mp3
 *.wav
 *.m4a
+todo.txt
 
 # Ignore virtual environments (if you use them later)
 venv/

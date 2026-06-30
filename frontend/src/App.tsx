@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import StudioBoard from './pages/StudioBoard';
 import UploadCenter from './pages/UploadCenter';
 import { Sliders, CloudUpload } from 'lucide-react';

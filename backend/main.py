@@ -27,7 +27,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output_mixes")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-app = FastAPI(title="Fortnite Festival Studio Backend AI")
+app = FastAPI(title="Audio Mixer Backend AI")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +36,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def make_unique_cache_path(filename: str, cache_dir: str = CACHE_DIR) -> str:
+    base_name, extension = os.path.splitext(filename)
+    candidate_path = os.path.join(cache_dir, filename)
+    counter = 1
+
+    while os.path.exists(candidate_path):
+        candidate_path = os.path.join(cache_dir, f"{base_name}_{counter}{extension}")
+        counter += 1
+
+    return candidate_path
 
 
 def run_demucs_splitter(song_path, cache_dir=CACHE_DIR):
@@ -169,6 +181,8 @@ class TimelineClipPayload(BaseModel):
     filename: str
     stem_type: str
     start_offset_seconds: float
+    duration_seconds: float | None = None
+    key_signature: str | None = None
 
 
 class MixMatrixPayload(BaseModel):
@@ -226,7 +240,8 @@ def upload_audio_stem(file: UploadFile = File(...)):
         )
 
     clean_filename = file.filename.replace(" ", "_")
-    destination_path = os.path.join(CACHE_DIR, clean_filename)
+    destination_path = make_unique_cache_path(clean_filename)
+    saved_filename = os.path.basename(destination_path)
 
     try:
         # 📁 Stream and save the file synchronously
@@ -235,7 +250,7 @@ def upload_audio_stem(file: UploadFile = File(...)):
             content = file.file.read()
             buffer.write(content)
 
-        print(f"📥 Successfully cached new source file: {clean_filename}")
+        print(f"📥 Successfully cached new source file: {saved_filename}")
 
         # 📊 This heavy librosa CPU calculation no longer freezes your app!
         bpm, key_sig = analyze_audio_properties(destination_path)
@@ -243,7 +258,7 @@ def upload_audio_stem(file: UploadFile = File(...)):
 
         return {
             "success": True,
-            "filename": clean_filename,
+            "filename": saved_filename,
             "message": f"Successfully loaded and analyzed track at {bpm} BPM!"
         }
     except Exception as e:
@@ -294,6 +309,30 @@ async def get_available_stems():
             "key": key_signature   # 🚀 Send to client
         })
     return stems
+
+
+@app.delete("/api/stems")
+async def delete_cached_stems(songName: str | None = None):
+    supported_extensions = (".wav", ".mp3", ".ogg")
+    removed = []
+
+    for filename in os.listdir(CACHE_DIR):
+        if not filename.lower().endswith(supported_extensions):
+            continue
+
+        if songName is not None:
+            stem_name = os.path.splitext(filename)[0].replace("_", " ").lower()
+            if songName.lower() not in stem_name:
+                continue
+
+        file_path = os.path.join(CACHE_DIR, filename)
+        os.remove(file_path)
+        removed.append(filename)
+
+    return {
+        "success": True,
+        "message": f"Removed {len(removed)} cached stems." if removed else "No matching cached stems found."
+    }
 
 
 # 🎛️ YOUR ALIGNMENT LOGIC INTEGRATED HERE
@@ -381,6 +420,11 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
             start_offset=clip.start_offset_seconds,
             target_sr=TARGET_SR
         )
+
+        if clip.duration_seconds is not None and clip.duration_seconds > 0:
+            target_samples = int(clip.duration_seconds * TARGET_SR)
+            if target_samples < len(y_aligned):
+                y_aligned = y_aligned[:target_samples]
 
         processed_tracks.append(y_aligned)
         if len(y_aligned) > max_length:
