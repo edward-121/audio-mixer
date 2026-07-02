@@ -23,7 +23,8 @@ export const ApiService = {
                 fileUrl: `${BACKEND_URL}/stems/${item.filename}`,
                 color: this.getStemColor(item.stem_type),
                 bpm: Math.round(item.bpm), // 🚀 Map BPM safely
-                key: item.key             // 🚀 Map Key safely
+                key: item.key,            // 🚀 Map Key safely
+                onsetOffsetSeconds: item.onset_offset_seconds ?? 0
             }));
         } catch (error) {
             console.error("API Error fetching isolated audio pieces:", error);

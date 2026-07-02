@@ -32,6 +32,10 @@ export default function StudioBoard() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [alignmentMode, setAlignmentMode] = useState<'off' | 'snap' | 'beat'>('off');
+  const [dragPreview, setDragPreview] = useState<{ laneIndex: number; startTime: number; clipId: string } | null>(null);
+  const [isExportingMashup, setIsExportingMashup] = useState(false);
+  const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +98,47 @@ export default function StudioBoard() {
     loadRealAudioStems();
   }, []);
 
+  // Generate lightweight waveform peak previews for each stem (used in clip thumbnails)
+  useEffect(() => {
+    if (!stemsPool || stemsPool.length === 0) return;
+
+    const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+    const generatePeaks = async (stem: AudioStem) => {
+      try {
+        if (waveforms[stem.id]) return; // already generated
+        const resp = await fetch(stem.fileUrl);
+        const ab = await resp.arrayBuffer();
+        const audioBuffer = await ac.decodeAudioData(ab.slice(0));
+        const channelData = audioBuffer.getChannelData(0);
+        const samples = 96; // number of bars in preview
+        const blockSize = Math.floor(channelData.length / samples) || 1;
+        const peaks: number[] = [];
+        for (let i = 0; i < samples; i++) {
+          let start = i * blockSize;
+          let end = Math.min(start + blockSize, channelData.length);
+          let max = 0;
+          for (let j = start; j < end; j++) {
+            const v = Math.abs(channelData[j]);
+            if (v > max) max = v;
+          }
+          peaks.push(Number(max.toFixed(3)));
+        }
+        setWaveforms(prev => ({ ...prev, [stem.id]: peaks }));
+      } catch (err) {
+        // ignore decode errors
+      }
+    };
+
+    stemsPool.forEach(s => {
+      generatePeaks(s);
+    });
+
+    return () => {
+      try { ac.close(); } catch { }
+    };
+  }, [stemsPool]);
+
   const handleFileDropUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -129,7 +174,8 @@ export default function StudioBoard() {
       laneIndex,
       duration: stem.duration,
       keySignature: stem.key,
-      audioStartOffset: 0,
+      audioStartOffset: stem.onsetOffsetSeconds ?? 0,
+      muted: false,
     };
     setClips(prev => [...prev, newClip]);
   };
@@ -137,6 +183,10 @@ export default function StudioBoard() {
   const removeClipFromTimeline = (clipId: string) => {
     if (isPlaying) handleStopPreview();
     setClips(prev => prev.filter(clip => clip.id !== clipId));
+  };
+
+  const toggleMute = (clipId: string) => {
+    setClips(prev => prev.map(c => c.id === clipId ? { ...c, muted: !c.muted } : c));
   };
 
   const handleAddNewCustomLane = () => {
@@ -198,6 +248,38 @@ export default function StudioBoard() {
     }
   };
 
+  const beatLength = useMemo(() => {
+    const allBpms = clips.map((clip) => clip.stem.bpm).filter(Boolean) as number[];
+    const averageBpm = allBpms.length ? allBpms.reduce((sum, b) => sum + b, 0) / allBpms.length : 120;
+    return averageBpm > 0 ? 60 / averageBpm : 0.5;
+  }, [clips]);
+
+  const snapTime = (time: number, audioStartOffset: number = 0) => {
+    if (alignmentMode === 'snap') {
+      const subdivision = Math.max(beatLength / 4, 0.1);
+      const aligned = Math.round((time + audioStartOffset) / subdivision) * subdivision;
+      return Number(Math.max(0, aligned - audioStartOffset).toFixed(2));
+    }
+
+    if (alignmentMode === 'beat') {
+      const aligned = Math.round((time + audioStartOffset) / beatLength) * beatLength;
+      return Number(Math.max(0, aligned - audioStartOffset).toFixed(2));
+    }
+
+    return Number(time.toFixed(3));
+  };
+
+  const downloadBlob = async (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const updatePlayhead = (timestamp: number) => {
     if (!startTimeRef.current) startTimeRef.current = timestamp;
     const elapsedSeconds = Math.min(240, (timestamp - startTimeRef.current) / 1000);
@@ -238,6 +320,7 @@ export default function StudioBoard() {
     animationFrameRef.current = requestAnimationFrame(updatePlayhead);
 
     clips.forEach((clip) => {
+      if (clip.muted) return; // respect mute per clip
       const audio = new Audio(clip.stem.fileUrl);
       const clipDurationMs = (clip.duration ?? clip.stem.duration) * 1000;
       const audioStartOffset = clip.audioStartOffset ?? 0;
@@ -301,12 +384,16 @@ export default function StudioBoard() {
     const deltaX = e.clientX - data.startX;
     const deltaSeconds = deltaX / PIXELS_PER_SECOND;
     const newStartTime = Math.max(0, data.originalStartTime + deltaSeconds);
+    const clip = clips.find((c) => c.id === data.id);
+    const audioOffset = clip?.audioStartOffset ?? 0;
+    const snappedStartTime = snapTime(newStartTime, audioOffset);
     const laneIndex = getLaneIndexFromClientY(e.clientY);
 
-    data.currentComputedStartTime = newStartTime;
+    data.currentComputedStartTime = snappedStartTime;
     data.currentLaneIndex = laneIndex ?? data.originalLaneIndex;
 
     data.domElement.style.transform = `translateX(${deltaX}px)`;
+    setDragPreview({ laneIndex: data.currentLaneIndex, startTime: snappedStartTime, clipId: data.id });
 
     const labelNode = data.domElement.querySelector('.clip-time-label');
     if (labelNode) {
@@ -328,6 +415,7 @@ export default function StudioBoard() {
     const finalLaneIndex = data.currentLaneIndex;
 
     data.domElement.style.transform = 'none';
+    setDragPreview(null);
 
     setClips(prev => prev.map(c => c.id === data.id ? { ...c, startTime: finalTime, laneIndex: finalLaneIndex } : c));
 
@@ -427,14 +515,32 @@ export default function StudioBoard() {
     const layoutMatrix = clips.map(c => ({
       filename: c.stem.fileUrl.split('/').pop(),
       stem_type: c.stem.stemType,
-      start_offset_seconds: parseFloat(c.startTime.toFixed(2)),
+      start_offset_seconds: Number(c.startTime.toFixed(2)),
+      audio_start_offset_seconds: Number((c.audioStartOffset ?? 0).toFixed(3)),
       duration_seconds: Number((c.duration ?? c.stem.duration).toFixed(2)),
       key_signature: c.keySignature ?? c.stem.key,
     }));
 
-    const result = await ApiService.renderMashupMatrix(layoutMatrix);
-    if (result.success) {
-      alert("Mashup Render complete! Your file has been perfectly beat-aligned.");
+    setIsExportingMashup(true);
+    try {
+      const result = await ApiService.renderMashupMatrix(layoutMatrix);
+      if (!result.success || !result.downloadUrl) {
+        throw new Error('Mashup render failed. Please try again.');
+      }
+
+      const downloadResponse = await fetch(result.downloadUrl);
+      if (!downloadResponse.ok) {
+        throw new Error('Unable to download the rendered master mashup.');
+      }
+
+      const blob = await downloadResponse.blob();
+      const filename = result.downloadUrl.split('/').pop() ?? 'master_mashup_mix.wav';
+      await downloadBlob(blob, filename);
+      alert('Mashup render complete! Your browser save dialog should now let you choose a folder.');
+    } catch (error: any) {
+      alert(error?.message || 'Failed to render and download master mix.');
+    } finally {
+      setIsExportingMashup(false);
     }
   };
 
@@ -491,9 +597,8 @@ export default function StudioBoard() {
 
           <button
             onClick={handleTogglePreview}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition font-medium border ${
-              isPlaying ? 'bg-red-950/40 border-red-800 text-red-400 hover:bg-red-900/60' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition font-medium border ${isPlaying ? 'bg-red-950/40 border-red-800 text-red-400 hover:bg-red-900/60' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white'
+              }`}
           >
             {isPlaying ? (
               <> <Square className="w-4 h-4 fill-red-400" /> Stop Preview </>
@@ -501,6 +606,19 @@ export default function StudioBoard() {
               <> <Play className="w-4 h-4 fill-white" /> Preview Layout </>
             )}
           </button>
+
+          <div className="flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/80 px-2 py-1 text-[11px] text-neutral-300">
+            <span className="uppercase tracking-[0.24em] text-neutral-500">Align</span>
+            {(['off', 'snap', 'beat'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setAlignmentMode(mode)}
+                className={`rounded-full px-3 py-1 transition ${alignmentMode === mode ? 'bg-purple-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+              >
+                {mode === 'off' ? 'Off' : mode === 'snap' ? 'Auto Snap' : 'Beat Align'}
+              </button>
+            ))}
+          </div>
 
           <button
             onClick={clearTimelineBoard}
@@ -511,9 +629,10 @@ export default function StudioBoard() {
 
           <button
             onClick={handleRenderMasterMix}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-md text-sm font-medium shadow-lg transition"
+            disabled={isExportingMashup}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium shadow-lg transition ${isExportingMashup ? 'bg-purple-700/50 text-neutral-200 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
           >
-            <Sparkles className="w-4 h-4" /> Render Master Mashup
+            <Sparkles className="w-4 h-4" /> {isExportingMashup ? 'Exporting...' : 'Render Master Mashup'}
           </button>
         </div>
       </header>
@@ -643,6 +762,23 @@ export default function StudioBoard() {
               ))}
             </div>
 
+            {dragPreview && alignmentMode !== 'off' && (
+              <div className="pointer-events-none absolute inset-0 z-20">
+                <div
+                  className="absolute top-4 h-[calc(100%-3rem)] w-0.5 bg-purple-500/60"
+                  style={{ left: `${176 + dragPreview.startTime * PIXELS_PER_SECOND}px` }}
+                />
+                <div
+                  className="absolute left-0 right-0 top-4 flex justify-center"
+                  style={{ transform: `translateX(${dragPreview.startTime * PIXELS_PER_SECOND}px)` }}
+                >
+                  <span className="rounded-full bg-purple-600/90 px-2 py-1 text-[10px] uppercase tracking-[0.24em] text-white shadow-lg">
+                    {alignmentMode === 'snap' ? 'Snap Target' : 'Beat Target'} {dragPreview.startTime.toFixed(2)}s
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div
               ref={playheadRef}
               onPointerDown={handlePlayheadPointerDown}
@@ -679,19 +815,19 @@ export default function StudioBoard() {
                             e.preventDefault();
                             removeClipFromTimeline(clip.id);
                           }}
-                          className={`absolute h-16 top-4 rounded-lg border p-3 flex flex-col justify-between cursor-grab active:cursor-grabbing shadow-md group select-none touch-none will-change-transform ${clip.stem.color}`}
+                          className={`absolute h-16 top-4 rounded-lg border p-3 flex flex-col justify-between cursor-grab active:cursor-grabbing shadow-md group select-none touch-none will-change-transform ${clip.stem.color} ${dragPreview?.clipId === clip.id ? 'border-purple-400 ring-2 ring-purple-500/40 shadow-[0_0_0_1px_rgba(168,85,247,0.35)]' : ''}`}
                           style={{
                             left: `${clip.startTime * PIXELS_PER_SECOND}px`,
                             width: `${(clip.duration ?? clip.stem.duration) * PIXELS_PER_SECOND}px`,
                           }}
                         >
                           <div className="flex justify-between items-center gap-2">
-                            <div className="flex flex-col min-w-0">
+                            <div className="flex flex-col min-w-0 flex-1">
                               <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
-                              <span className="clip-time-label text-[9px] font-mono opacity-70">Starts at: {clip.startTime.toFixed(1)}s</span>
+                              <span className="clip-time-label text-[9px] font-mono opacity-70 truncate">Starts at: {clip.startTime.toFixed(1)}s</span>
                             </div>
 
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-shrink-0">
                               <select
                                 value={clip.keySignature ?? clip.stem.key}
                                 onPointerDown={(e) => e.stopPropagation()}
@@ -705,6 +841,14 @@ export default function StudioBoard() {
                               </select>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
+                                onClick={() => toggleMute(clip.id)}
+                                className={`p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-neutral-700 hover:text-white transition z-50 cursor-pointer ${clip.muted ? 'bg-yellow-700 text-black' : ''}`}
+                                title={clip.muted ? 'Unmute track' : 'Mute track'}
+                              >
+                                {clip.muted ? '🔈' : '🔇'}
+                              </button>
+                              <button
+                                onPointerDown={(e) => e.stopPropagation()}
                                 onClick={() => removeClipFromTimeline(clip.id)}
                                 className="p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-red-600 hover:text-white transition z-50 cursor-pointer"
                                 title="Delete track"
@@ -714,28 +858,47 @@ export default function StudioBoard() {
                             </div>
                           </div>
 
-                          <div className="w-full h-3 bg-black/20 rounded-sm flex items-center justify-around opacity-40 pointer-events-none">
-                            {[...Array(20)].map((_, i) => (
-                              <div key={i} className="w-[1.5px] bg-white rounded-full" style={{ height: `${Math.abs(Math.sin(i * 0.4)) * 100}%` }}></div>
-                            ))}
+                          <div className="w-full h-3 rounded-sm overflow-hidden">
+                            {waveforms[clip.stem.id] ? (
+                              <div className="flex items-end gap-0.5 h-full">
+                                {waveforms[clip.stem.id].map((p, i) => (
+                                  <div key={i} style={{ width: `${100 / waveforms[clip.stem.id].length}%`, height: `${Math.max(3, p * 100)}%` }} className={`bg-white/80 ${clip.muted ? 'opacity-30' : ''}`}></div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="w-full h-3 bg-black/20 rounded-sm flex items-center justify-around opacity-40 pointer-events-none">
+                                {[...Array(20)].map((_, i) => (
+                                  <div key={i} className="w-[1.5px] bg-white rounded-full" style={{ height: `${Math.abs(Math.sin(i * 0.4)) * 100}%` }}></div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div
                             onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'start')}
                             onPointerMove={handleClipTrimPointerMove}
                             onPointerUp={handleClipTrimPointerUp}
-                            className="absolute left-1 top-1/2 z-50 h-3 w-3 -translate-y-1/2 rounded-full border border-white/30 bg-black/60 cursor-ew-resize"
+                            className="absolute left-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
                             title="Trim clip start"
                           />
                           <div
                             onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'end')}
                             onPointerMove={handleClipTrimPointerMove}
                             onPointerUp={handleClipTrimPointerUp}
-                            className="absolute right-1 top-1/2 z-50 h-3 w-3 -translate-y-1/2 rounded-full border border-white/30 bg-black/60 cursor-ew-resize"
+                            className="absolute right-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
                             title="Trim clip end"
                           />
                         </div>
                       ))}
+                    {dragPreview?.laneIndex === laneIdx && draggingDataRef.current && draggingDataRef.current.id === dragPreview.clipId && (
+                      <div
+                        className="absolute h-16 top-4 rounded-lg border border-dashed border-white/30 bg-white/10 opacity-40 pointer-events-none"
+                        style={{
+                          left: `${dragPreview.startTime * PIXELS_PER_SECOND}px`,
+                          width: `${(clips.find(c => c.id === dragPreview.clipId)?.duration ?? 0.5) * PIXELS_PER_SECOND}px`,
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               ))}

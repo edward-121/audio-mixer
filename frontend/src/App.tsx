@@ -10,26 +10,26 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen bg-neutral-950 text-white overflow-hidden">
-      
+
       {/* Global Navigation Hub Sidebar */}
       <nav className="w-20 bg-neutral-900 border-r border-neutral-800 flex flex-col items-center py-6 gap-6 z-20">
-        <div className="font-black text-purple-500 tracking-tighter text-xl mb-4">DJ</div>
-        
-        <button 
+        <div className="mb-2">
+          <img src="/logo.png" alt="Mixer Logo" className="h-12 w-12 object-contain rounded-full border border-neutral-800 shadow-sm" />
+        </div>
+
+        <button
           onClick={() => setActivePage('studio')}
-          className={`p-3 rounded-xl transition ${
-            activePage === 'studio' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-          }`}
+          className={`p-3 rounded-xl transition ${activePage === 'studio' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+            }`}
           title="Mixer Studio Timeline"
         >
           <Sliders className="w-5 h-5" />
         </button>
 
-        <button 
+        <button
           onClick={() => setActivePage('upload')}
-          className={`p-3 rounded-xl transition ${
-            activePage === 'upload' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-          }`}
+          className={`p-3 rounded-xl transition ${activePage === 'upload' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+            }`}
           title="Upload Center"
         >
           <CloudUpload className="w-5 h-5" />

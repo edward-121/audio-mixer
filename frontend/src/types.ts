@@ -5,8 +5,9 @@ export interface AudioStem {
   duration: number;
   fileUrl: string;
   color: string;
-  bpm: number;       
-  key: string;       
+  bpm: number;
+  key: string;
+  onsetOffsetSeconds: number;
 }
 
 export interface TimelineClip {
@@ -17,4 +18,5 @@ export interface TimelineClip {
   duration?: number;  // Optional clip length override for trimming
   keySignature?: string; // Optional user-adjusted key label
   audioStartOffset: number;
+  muted?: boolean;
 }

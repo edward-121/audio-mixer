@@ -181,6 +181,7 @@ class TimelineClipPayload(BaseModel):
     filename: str
     stem_type: str
     start_offset_seconds: float
+    audio_start_offset_seconds: float = 0.0
     duration_seconds: float | None = None
     key_signature: str | None = None
 
@@ -195,34 +196,51 @@ PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'
 
 def analyze_audio_properties(file_path: str):
     """
-    Analyzes an audio file and extracts both its precise BPM
-    and estimated musical key signature.
+    Analyzes an audio file and extracts BPM, musical key, and the first strong onset offset.
     """
     try:
         y, sr = librosa.load(file_path, sr=22050)
-
-        # 1. Calculate BPM matching your layout rule
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
-        if bpm <= 0:
+        # 1. Calculate BPM and beat positions robustly
+        try:
+            # beat_track returns (tempo, beat_frames)
+            tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+            # tempo may be numpy scalar/array — coerce safely
+            tempo_arr = np.asarray(tempo)
+            if tempo_arr.size == 0:
+                bpm = 120.0
+            else:
+                # if multiple estimations, take the mean
+                bpm = float(np.mean(tempo_arr)) if tempo_arr.size > 1 else float(tempo_arr.item())
+            if not np.isfinite(bpm) or bpm <= 0:
+                bpm = 120.0
+        except Exception:
             bpm = 120.0
 
-        # 2. Key Estimation Math (Using chromagram profile analysis)
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-        chroma_avg = np.mean(chroma, axis=1)
-        key_idx = int(np.argmax(chroma_avg))
+        # 2. Find the first strong onset so we can align off-beat starts consistently
+        try:
+            onset_frames = librosa.onset.onset_detect(y=y, sr=sr, backtrack=True)
+            if len(onset_frames) > 0:
+                onset_offset_seconds = float(librosa.frames_to_time(int(onset_frames[0]), sr=sr))
+            else:
+                onset_offset_seconds = 0.0
+        except Exception:
+            onset_offset_seconds = 0.0
 
-        # Simple heuristic to guess major/minor based on peak placement energy splits
-        # For a truly bulletproof analysis, full key-profile correlation (Krumhansl-Schmuckler) is ideal.
-        is_minor = chroma_avg[(key_idx + 3) % 12] > chroma_avg[(key_idx + 4) % 12]
-        mode_label = "m" if is_minor else ""
+        # 3. Key Estimation Math (Using chromagram profile analysis)
+        try:
+            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+            chroma_avg = np.mean(chroma, axis=1)
+            key_idx = int(np.argmax(chroma_avg))
+            is_minor = chroma_avg[(key_idx + 3) % 12] > chroma_avg[(key_idx + 4) % 12]
+            mode_label = "m" if is_minor else ""
+            estimated_key = f"{PITCH_CLASSES[key_idx]}{mode_label}"
+        except Exception:
+            estimated_key = "C"
 
-        estimated_key = f"{PITCH_CLASSES[key_idx]}{mode_label}"
-
-        return round(bpm, 1), estimated_key
+        return round(bpm, 1), estimated_key, round(onset_offset_seconds, 3)
     except Exception as e:
         print(f"⚠️ Metadata analysis fallback on {os.path.basename(file_path)}: {e}")
-        return 120.0, "C"
+        return 120.0, "C", 0.0
 
 
 # 🚀 FIX: Notice we changed 'async def' to standard 'def'
@@ -253,13 +271,16 @@ def upload_audio_stem(file: UploadFile = File(...)):
         print(f"📥 Successfully cached new source file: {saved_filename}")
 
         # 📊 This heavy librosa CPU calculation no longer freezes your app!
-        bpm, key_sig = analyze_audio_properties(destination_path)
-        print(f"📊 Live Scan Results -> {bpm} BPM | Key: {key_sig}")
+        bpm, key_sig, onset_offset_seconds = analyze_audio_properties(destination_path)
+        print(f"📊 Live Scan Results -> {bpm} BPM | Key: {key_sig} | Onset {onset_offset_seconds:.3f}s")
 
         return {
             "success": True,
             "filename": saved_filename,
-            "message": f"Successfully loaded and analyzed track at {bpm} BPM!"
+            "message": f"Successfully loaded and analyzed track at {bpm} BPM!",
+            "bpm": bpm,
+            "key": key_sig,
+            "onset_offset_seconds": onset_offset_seconds
         }
     except Exception as e:
         print(f"❌ Upload processing failure: {e}")
@@ -278,7 +299,7 @@ async def get_available_stems():
         file_path = os.path.join(CACHE_DIR, filename)
 
         # Pull real properties instantly
-        bpm, key_signature = analyze_audio_properties(file_path)
+        bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
 
         name_lower = filename.lower()
         if "vocal" in name_lower or "vox" in name_lower:
@@ -306,7 +327,8 @@ async def get_available_stems():
             "duration_seconds": get_audio_duration(file_path),
             "filename": filename,
             "bpm": bpm,            # 🚀 Send to client
-            "key": key_signature   # 🚀 Send to client
+            "key": key_signature,  # 🚀 Send to client
+            "onset_offset_seconds": onset_offset_seconds
         })
     return stems
 
@@ -336,10 +358,10 @@ async def delete_cached_stems(songName: str | None = None):
 
 
 # 🎛️ YOUR ALIGNMENT LOGIC INTEGRATED HERE
-def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, target_sr: int = 22050):
+def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):
     """
-    Loads a track, stretches it to match the target BPM using your Librosa formula,
-    and returns the raw array padded with structural starting silence.
+    Loads a track, trims leading silence to the first strong onset, stretches it to match the target BPM,
+    and returns the raw array padded with silence so the beat aligns at the requested timeline position.
     """
     print(f"⏳ Processing stem: {os.path.basename(file_path)}")
     y, sr = librosa.load(file_path, sr=target_sr)
@@ -347,11 +369,17 @@ def process_and_align_stem(file_path: str, target_bpm: float, start_offset: floa
     # Run your clean native tempo detection formula
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     try:
-        source_bpm = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0]
+        source_bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
         if source_bpm <= 0:
             source_bpm = 120.0
     except Exception:
         source_bpm = 120.0
+
+    # Trim away the leading silence before the first detected beat onset so tracks align by actual pulse
+    if audio_start_offset > 0:
+        start_sample = min(len(y), int(audio_start_offset * sr))
+        y = y[start_sample:]
+        print(f"   ↳ Trimmed leading silence: {audio_start_offset:.3f}s ({start_sample} samples)")
 
     # Calculate stretch ratio matching your script
     stretch_ratio = target_bpm / source_bpm
@@ -360,7 +388,7 @@ def process_and_align_stem(file_path: str, target_bpm: float, start_offset: floa
     # Dynamic time stretch
     y_stretched = librosa.effects.time_stretch(y, rate=stretch_ratio)
 
-    # Calculate offset padding alignment
+    # Calculate padding so the onset lines up with the timeline start position
     silence_samples = int(start_offset * target_sr)
     if silence_samples > 0:
         y_aligned = np.concatenate([np.zeros(silence_samples, dtype=np.float32), y_stretched])
@@ -418,6 +446,7 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
             file_path=file_path,
             target_bpm=TARGET_BPM,  # 🏎️ Uses the dynamic average instead of static 120!
             start_offset=clip.start_offset_seconds,
+            audio_start_offset=clip.audio_start_offset_seconds,
             target_sr=TARGET_SR
         )
 
