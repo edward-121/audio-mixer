@@ -4,8 +4,8 @@ pydantic==2.9.2
 python-multipart==0.0.21
 librosa==0.11.0
 soundfile==0.12.0
-numpy==1.26.4
-mutagen==1.4.0
+numpy>=1.26.4
+mutagen==1.48.1
 # demucs is heavy; Render free tier may not support full audio processing reliably
 # Uncomment and test if your runtime allows it:
 # demucs==4.0.0
