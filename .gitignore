@@ -4,6 +4,10 @@
 *.m4a
 todo.txt
 
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+
 # Ignore virtual environments (if you use them later)
 venv/
 .venv/

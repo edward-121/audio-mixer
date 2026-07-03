@@ -1,0 +1,13 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.21
+librosa==0.10.21
+soundfile==0.12.0
+numpy==1.26.4
+mutagen==1.4.0
+# demucs is heavy; Render free tier may not support full audio processing reliably
+# Uncomment and test if your runtime allows it:
+# demucs==4.0.0
+# torch==2.5.1
+# torchaudio==2.5.1

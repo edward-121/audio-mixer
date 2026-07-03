@@ -17,11 +17,19 @@ import shutil
 
 BASE_DIR = Path(__file__).resolve().parent
 
+
+def get_cors_origins() -> list[str]:
+    raw_value = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    if raw_value.strip() == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+
+
 # 💾 The global cache folder where stems are imported and split
-CACHE_DIR = os.path.join(BASE_DIR, "stem_cache")
+CACHE_DIR = os.environ.get("CACHE_DIR", str(BASE_DIR / "stem_cache"))
 
 # 🎚️ The output directory where finished master mashups are exported
-OUTPUT_DIR = os.path.join(BASE_DIR, "output_mixes")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", str(BASE_DIR / "output_mixes"))
 
 # 🛡️ Automatically create the physical folders on your machine if they don't exist yet
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -29,10 +37,11 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = FastAPI(title="Audio Mixer Backend AI")
 
+cors_origins = get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,7 +1,7 @@
 import type { AudioStem } from '../types';
 
-// The local development endpoint where your FastAPI / Flask server runs
-const BACKEND_URL = 'http://localhost:8000';
+// The backend endpoint where your FastAPI server runs. Override in production via VITE_API_BASE_URL.
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export const ApiService = {
     /**
