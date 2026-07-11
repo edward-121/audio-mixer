@@ -40,8 +40,8 @@ app = FastAPI(title="Audio Mixer Backend AI")
 cors_origins = get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=cors_origins != ["*"],
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -492,5 +492,5 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
     return {
         "success": True,
         "message": f"Mashup compiled successfully at optimal {TARGET_BPM} BPM!",
-        "downloadUrl": f"http://localhost:8000/mixes/{output_filename}"
+        "downloadUrl": f"/mixes/{output_filename}" 
     }

@@ -1,7 +1,18 @@
 import type { AudioStem } from '../types';
 
-// The backend endpoint where your FastAPI server runs. Override in production via VITE_API_BASE_URL.
-const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// In production, prefer same-origin routes so Vercel can proxy them to Render.
+// Fall back to localhost only during local development.
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : 'http://localhost:8000');
+
+const buildUrl = (path: string) => {
+    if (!path) return BACKEND_URL || '/';
+    if (/^https?:\/\//.test(path)) return path;
+
+    const base = BACKEND_URL || '';
+    if (!base) return path.startsWith('/') ? path : `/${path}`;
+
+    return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+};
 
 export const ApiService = {
     /**
@@ -9,7 +20,7 @@ export const ApiService = {
      */
     async getAvailableStems(): Promise<AudioStem[]> {
         try {
-            const response = await fetch(`${BACKEND_URL}/api/stems`);
+            const response = await fetch(buildUrl('/api/stems'));
             if (!response.ok) throw new Error('Failed to synchronize stems pool.');
 
             const data = await response.json();
@@ -20,7 +31,7 @@ export const ApiService = {
                 songName: item.song_name,
                 stemType: item.stem_type,
                 duration: item.duration_seconds,
-                fileUrl: `${BACKEND_URL}/stems/${item.filename}`,
+                fileUrl: buildUrl(`/stems/${item.filename}`),
                 color: this.getStemColor(item.stem_type),
                 bpm: Math.round(item.bpm), // 🚀 Map BPM safely
                 key: item.key,            // 🚀 Map Key safely
@@ -37,14 +48,18 @@ export const ApiService = {
      */
     async renderMashupMatrix(clips: any[]): Promise<{ success: boolean; downloadUrl?: string }> {
         try {
-            const response = await fetch(`${BACKEND_URL}/api/mix`, {
+            const response = await fetch(buildUrl('/api/mix'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clips })
             });
 
             if (!response.ok) throw new Error('Backend failed to render the timeline array matrix.');
-            return await response.json();
+            const data = await response.json();
+            return {
+                ...data,
+                downloadUrl: data.downloadUrl ? buildUrl(data.downloadUrl) : undefined
+            };
         } catch (error) {
             console.error("API Error compiling master mashup:", error);
             return { success: false };
@@ -65,7 +80,7 @@ export const ApiService = {
         const formData = new FormData();
         formData.append("file", file);
 
-        const response = await fetch(`${BACKEND_URL}/api/upload`, {
+        const response = await fetch(buildUrl('/api/upload'), {
             method: "POST",
             body: formData, // FormData automatically handles multipart headers correctly
         });
@@ -82,7 +97,7 @@ export const ApiService = {
         const formData = new FormData();
         formData.append("file", file);
 
-        const response = await fetch(`${BACKEND_URL}/api/upload/song`, {
+        const response = await fetch(buildUrl('/api/upload/song'), {
             method: "POST",
             body: formData,
         });
@@ -97,7 +112,7 @@ export const ApiService = {
 
     async deleteCachedStems(songName?: string): Promise<{ success: boolean; message: string }> {
         const params = songName ? `?songName=${encodeURIComponent(songName)}` : '';
-        const response = await fetch(`${BACKEND_URL}/api/stems${params}`, {
+        const response = await fetch(buildUrl(`/api/stems${params}`), {
             method: 'DELETE',
         });
 
