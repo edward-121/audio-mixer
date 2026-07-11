@@ -37,6 +37,31 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = FastAPI(title="Audio Mixer Backend AI")
 
+
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "Audio Mixer Backend AI",
+        "endpoints": [
+            "/api/upload",
+            "/api/upload/song",
+            "/api/stems",
+            "/api/mix",
+        ],
+    }
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/health")
+async def api_health():
+    return {"status": "ok"}
+
+
 cors_origins = get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
