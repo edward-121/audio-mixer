@@ -284,6 +284,9 @@ def upload_audio_stem(file: UploadFile = File(...)):
     """
     Upload an already-isolated stem directly and analyze its BPM/key.
     """
+    if file.filename is None or not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided for upload.")
+
     supported_extensions = (".wav", ".mp3", ".ogg")
     if not file.filename.lower().endswith(supported_extensions):
         raise HTTPException(
@@ -296,15 +299,14 @@ def upload_audio_stem(file: UploadFile = File(...)):
     saved_filename = os.path.basename(destination_path)
 
     try:
-        # 📁 Stream and save the file synchronously
         with open(destination_path, "wb") as buffer:
-            # Since it's a standard def, we use file.file.read() instead of await file.read()
             content = file.file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty.")
             buffer.write(content)
 
         print(f"📥 Successfully cached new source file: {saved_filename}")
 
-        # 📊 This heavy librosa CPU calculation no longer freezes your app!
         bpm, key_sig, onset_offset_seconds = analyze_audio_properties(destination_path)
         print(f"📊 Live Scan Results -> {bpm} BPM | Key: {key_sig} | Onset {onset_offset_seconds:.3f}s")
 
@@ -316,6 +318,10 @@ def upload_audio_stem(file: UploadFile = File(...)):
             "key": key_sig,
             "onset_offset_seconds": onset_offset_seconds
         }
+    except HTTPException:
+        if os.path.exists(destination_path):
+            os.remove(destination_path)
+        raise
     except Exception as e:
         print(f"❌ Upload processing failure: {e}")
         if os.path.exists(destination_path):
