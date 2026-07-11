@@ -1,8 +1,7 @@
 import type { AudioStem } from '../types';
 
-// In production, prefer same-origin routes so Vercel can proxy them to Render.
-// Fall back to localhost only during local development.
-const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '' : 'http://localhost:8000');
+// In production, use the Render backend URL unless Vercel provides a different override.
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://audio-mixer-g5ha.onrender.com' : 'http://localhost:8000');
 
 const buildUrl = (path: string) => {
     if (!path) return BACKEND_URL || '/';

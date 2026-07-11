@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://audio-mixer-backend.onrender.com/api/$1"
+      "destination": "https://audio-mixer-g5ha.onrender.com/api/$1"
     },
     {
       "source": "/stems/(.*)",
-      "destination": "https://audio-mixer-backend.onrender.com/stems/$1"
+      "destination": "https://audio-mixer-g5ha.onrender.com/stems/$1"
     },
     {
       "source": "/mixes/(.*)",
-      "destination": "https://audio-mixer-backend.onrender.com/mixes/$1"
+      "destination": "https://audio-mixer-g5ha.onrender.com/mixes/$1"
     }
   ]
 }
