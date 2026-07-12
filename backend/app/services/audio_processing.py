@@ -64,18 +64,21 @@ def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: st
 def analyze_audio_properties(file_path: str):
     print(f"🕵️‍♂️ [ANALYZER] Starting deep analysis on: {Path(file_path).name}")
     try:
-        y, sr = librosa.load(file_path, sr=11025, duration=20.0)
+        y, sr = librosa.load(file_path, sr=11025, offset=30.0, duration=7.0)
         
+        if len(y) == 0:
+            y, sr = librosa.load(file_path, sr=11025, duration=7.0)
+
         try:
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
             bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
             if not np.isfinite(bpm) or bpm <= 0: bpm = 120.0
         except Exception as e: 
-            print(f"⚠️ [ANALYZER WARNING] BPM calculation failed, defaulting to 120: {e}")
+            print(f"⚠️ [ANALYZER WARNING] BPM calculation failed: {e}")
             bpm = 120.0
 
         try:
-            onset_frames = librosa.onset.onset_detect(y=y, sr=sr, backtrack=True)
+            onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, backtrack=True)
             onset_offset_seconds = float(librosa.frames_to_time(int(onset_frames[0]), sr=sr)) if len(onset_frames) > 0 else 0.0
         except Exception: 
             onset_offset_seconds = 0.0
