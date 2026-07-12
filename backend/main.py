@@ -2,7 +2,7 @@ import os
 os.environ["MUTAGEN_NO_WARNINGS"] = "1"
 
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,6 +37,20 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", str(BASE_DIR / "output_mixes"))
 # 🛡️ Automatically create the physical folders on your machine if they don't exist yet
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def get_session_cache_dir(x_session_id: str = Header(..., alias="X-Session-ID")) -> str:
+    """
+    Dynamically extracts the user's browser session ID header
+    and provisions a private sandboxed subfolder for them.
+    """
+    # Sanitize the string to prevent path traversal issues
+    safe_session_id = "".join([c for c in x_session_id if c.isalnum() or c in "-_"])
+    user_isolated_path = os.path.join(CACHE_DIR, safe_session_id)
+    
+    # Create the user's folder on the fly if it doesn't exist
+    os.makedirs(user_isolated_path, exist_ok=True)
+    return user_isolated_path
+
 
 app = FastAPI(title="Audio Mixer Backend AI")
 
@@ -207,27 +221,26 @@ def run_demucs_splitter(song_path, cache_dir=CACHE_DIR):
 
 
 @app.post("/api/upload/song")
-async def upload_full_song(file: UploadFile = File(...)):
+async def upload_full_song(file: UploadFile = File(...), session_cache: str = Depends(get_session_cache_dir)):
     """
-    Upload a full song and split it into stems (vocals/bass/drums/other) via Demucs.
+    Upload a full song and split it into stems via Demucs inside a private session folder.
     """
     supported_extensions = (".wav", ".mp3", ".ogg")
     if not file.filename.lower().endswith(supported_extensions):
         raise HTTPException(status_code=400, detail="Unsupported audio file format.")
 
     clean_filename = file.filename.replace(" ", "_")
-    temp_upload_path = os.path.join(CACHE_DIR, f"{clean_filename}")
+    # 🚀 FIX: Route file straight to the isolated user subfolder
+    temp_upload_path = os.path.join(session_cache, clean_filename)
 
     try:
-        # 1. Write incoming song temporarily to disk
         with open(temp_upload_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
 
-        # 2. Trigger the Demucs splitting engine
-        success = run_demucs_splitter(temp_upload_path)
+        # 🚀 FIX: Tell Demucs to dump output files into the private session_cache directory
+        success = run_demucs_splitter(temp_upload_path, cache_dir=session_cache)
 
-        # 3. Always delete the temporary source file
         if os.path.exists(temp_upload_path):
             os.remove(temp_upload_path)
 
@@ -236,7 +249,7 @@ async def upload_full_song(file: UploadFile = File(...)):
 
         return {
             "success": True,
-            "message": "Song successfully isolated into custom flat stems!"
+            "message": "Song successfully isolated into private session stems!"
         }
     except Exception as e:
         if os.path.exists(temp_upload_path):
@@ -328,9 +341,9 @@ def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int =
 
 
 @app.post("/api/upload")
-async def upload_audio_stem(file: UploadFile = File(...)):
+async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = Depends(get_session_cache_dir)):
     """
-    Upload an already-isolated stem directly and analyze its BPM/key.
+    Upload an already-isolated stem directly to a user's session cache and analyze properties.
     """
     if file.filename is None or not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided for upload.")
@@ -343,7 +356,8 @@ async def upload_audio_stem(file: UploadFile = File(...)):
         )
 
     clean_filename = file.filename.replace(" ", "_")
-    destination_path = make_unique_cache_path(clean_filename)
+    # 🚀 FIX: Pass the user's session cache directory down to make it isolated
+    destination_path = make_unique_cache_path(clean_filename, cache_dir=session_cache)
     saved_filename = os.path.basename(destination_path)
 
     try:
@@ -381,13 +395,15 @@ async def upload_audio_stem(file: UploadFile = File(...)):
 
 
 @app.get("/api/stems")
-async def get_available_stems():
+async def get_available_stems(session_cache: str = Depends(get_session_cache_dir)):
     stems = []
     supported_extensions = (".wav", ".mp3", ".ogg")
-    files = [f for f in os.listdir(CACHE_DIR) if f.lower().endswith(supported_extensions)]
+    
+    # 🚀 FIX: Read only from the user's session cache subfolder
+    files = [f for f in os.listdir(session_cache) if f.lower().endswith(supported_extensions)]
 
     for idx, filename in enumerate(files):
-        file_path = os.path.join(CACHE_DIR, filename)
+        file_path = os.path.join(session_cache, filename)
         cached_metadata = load_cached_metadata(filename)
 
         name_lower = filename.lower()
@@ -486,26 +502,24 @@ def process_and_align_stem(file_path: str, target_bpm: float, start_offset: floa
 
 
 @app.post("/api/mix")
-async def render_mashup_matrix(payload: MixMatrixPayload):
+async def render_mashup_matrix(payload: MixMatrixPayload, session_cache: str = Depends(get_session_cache_dir)):
     if not payload.clips:
         raise HTTPException(status_code=400, detail="Timeline grid layout matrix is empty.")
 
-    TARGET_SR = 22050   # Universal processing sample rate
+    TARGET_SR = 22050 
 
-    # 🎯 STEP 1: DYNAMICALLY CALCULATE OPTIMAL BPM
-    # Gather the true analyzed source BPM for every file on the timeline
     source_bpms = []
     valid_clips = []
 
     for clip in payload.clips:
-        file_path = os.path.join(CACHE_DIR, clip.filename)
+        # 🚀 FIX: Locate timeline stems within the private session cache
+        file_path = os.path.join(session_cache, clip.filename)
         if not os.path.exists(file_path):
             print(f"⚠️ Track missing from folder cache directory: {clip.filename}")
             continue
 
         valid_clips.append(clip)
 
-        # Pull the accurate BPM for this file using our existing formula
         try:
             y, sr = librosa.load(file_path, sr=TARGET_SR)
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
@@ -515,23 +529,19 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
         except Exception:
             pass
 
-    # Fallback to 120 only if no clips could be parsed, otherwise use the optimal average
     TARGET_BPM = round(sum(source_bpms) / len(source_bpms), 1) if source_bpms else 120.0
 
     print(f"\n🚀 Starting Dynamic Master Mixdown Render...")
-    print(f"📊 Analyzed track speeds: {[round(b, 1) for b in source_bpms]}")
-    print(f"🎯 Calculated Optimal Project Target Tempo: {TARGET_BPM} BPM\n")
-
     processed_tracks = []
     max_length = 0
 
-    # 2. Process and stretch each individual track to match the dynamic TARGET_BPM
     for clip in valid_clips:
-        file_path = os.path.join(CACHE_DIR, clip.filename)
+        # 🚀 FIX: Read raw waves using the session cache variable layout path
+        file_path = os.path.join(session_cache, clip.filename)
 
         y_aligned = process_and_align_stem(
             file_path=file_path,
-            target_bpm=TARGET_BPM,  # 🏎️ Uses the dynamic average instead of static 120!
+            target_bpm=TARGET_BPM,
             start_offset=clip.start_offset_seconds,
             audio_start_offset=clip.audio_start_offset_seconds,
             target_sr=TARGET_SR
@@ -549,18 +559,14 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
     if not processed_tracks:
         raise HTTPException(status_code=404, detail="No source audio files found to mix down.")
 
-    # 3. Mash the arrays together into one master grid matrix
     master_mix = np.zeros(max_length, dtype=np.float32)
     for track in processed_tracks:
         master_mix[:len(track)] += track
 
-    # 4. Normalize peaks to prevent clipping distortion
     max_peak = np.max(np.abs(master_mix))
     if max_peak > 1.0:
         master_mix /= max_peak
-        print("🎚️ Master level normalized to safeguard against clipping distortion.")
 
-    # 5. Write the finished mashup to disk
     output_filename = "master_mashup_mix.wav"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
