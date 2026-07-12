@@ -3,6 +3,19 @@ import type { AudioStem } from '../types';
 // Use the current Render backend directly in production to avoid CORS issues caused by older hosts.
 const BACKEND_URL = import.meta.env.PROD ? 'https://audio-mixer-g5ha.onrender.com' : 'http://localhost:8000';
 
+/**
+ * 🆔 Retrieves or generates a unique persistent session ID for this browser.
+ * This ensures the user stays locked into their private workspace folder.
+ */
+function getSessionId(): string {
+    let sessionId = localStorage.getItem("studio_session_id");
+    if (!sessionId) {
+        sessionId = crypto.randomUUID(); // Generates a clean unique string (UUID v4)
+        localStorage.setItem("studio_session_id", sessionId);
+    }
+    return sessionId;
+}
+
 const buildUrl = (path: string) => {
     if (!path) return BACKEND_URL || '/';
     if (/^https?:\/\//.test(path)) return path;
@@ -15,14 +28,29 @@ const buildUrl = (path: string) => {
 
 export const ApiService = {
     /**
+     * 🛡️ Helper method to generate unified network request headers.
+     * Automatically injects the required X-Session-ID header on every call.
+     */
+    getHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
+        return {
+            "X-Session-ID": getSessionId(),
+            ...customHeaders,
+        };
+    },
+
+    /**
      * 1. Fetches all isolated track elements currently cached inside your backend's storage
      */
     async getAvailableStems(): Promise<AudioStem[]> {
         try {
-            const response = await fetch(buildUrl('/api/stems'));
+            const response = await fetch(buildUrl('/api/stems'), {
+                method: "GET",
+                headers: this.getHeaders() // 🚀 Injected Session Header
+            });
             if (!response.ok) throw new Error('Failed to synchronize stems pool.');
 
             const data = await response.json();
+            const sessionId = getSessionId();
 
             // Map incoming database items to match our TypeScript timeline UI attributes
             return data.map((item: any) => ({
@@ -30,10 +58,11 @@ export const ApiService = {
                 songName: item.song_name,
                 stemType: item.stem_type,
                 duration: item.duration_seconds,
-                fileUrl: buildUrl(`/stems/${item.filename}`),
+                // 🚀 FIX: Update the URL route so the audio player drills into your private folder path
+                fileUrl: buildUrl(`/stems/${sessionId}/${item.filename}`),
                 color: this.getStemColor(item.stem_type),
-                bpm: Math.round(item.bpm), // 🚀 Map BPM safely
-                key: item.key,            // 🚀 Map Key safely
+                bpm: Math.round(item.bpm), 
+                key: item.key,            
                 onsetOffsetSeconds: item.onset_offset_seconds ?? 0
             }));
         } catch (error) {
@@ -49,7 +78,7 @@ export const ApiService = {
         try {
             const response = await fetch(buildUrl('/api/mix'), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getHeaders({ 'Content-Type': 'application/json' }), // 🚀 Injected Session Header
                 body: JSON.stringify({ clips })
             });
 
@@ -81,7 +110,8 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload'), {
             method: "POST",
-            body: formData, // FormData automatically handles multipart headers correctly
+            headers: this.getHeaders(), // 🚀 Injected Session Header
+            body: formData, 
         });
 
         if (!response.ok) {
@@ -98,6 +128,7 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload/song'), {
             method: "POST",
+            headers: this.getHeaders(), // 🚀 Injected Session Header
             body: formData,
         });
 
@@ -113,6 +144,7 @@ export const ApiService = {
         const params = songName ? `?songName=${encodeURIComponent(songName)}` : '';
         const response = await fetch(buildUrl(`/api/stems${params}`), {
             method: 'DELETE',
+            headers: this.getHeaders(), // 🚀 Injected Session Header
         });
 
         if (!response.ok) {

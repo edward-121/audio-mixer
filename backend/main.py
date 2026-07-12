@@ -2,12 +2,14 @@ import os
 os.environ["MUTAGEN_NO_WARNINGS"] = "1"
 
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import json
+import threading
 import librosa
 import soundfile as sf
 import numpy as np
@@ -36,9 +38,65 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", str(BASE_DIR / "output_mixes"))
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+def get_session_cache_dir(x_session_id: str = Header(..., alias="X-Session-ID")) -> str:
+    """
+    Dynamically extracts the user's browser session ID header
+    and provisions a private sandboxed subfolder for them.
+    """
+    # Sanitize the string to prevent path traversal issues
+    safe_session_id = "".join([c for c in x_session_id if c.isalnum() or c in "-_"])
+    user_isolated_path = os.path.join(CACHE_DIR, safe_session_id)
+    
+    # Create the user's folder on the fly if it doesn't exist
+    os.makedirs(user_isolated_path, exist_ok=True)
+    return user_isolated_path
+
+
 app = FastAPI(title="Audio Mixer Backend AI")
 
 analysis_executor = ThreadPoolExecutor(max_workers=1)
+
+
+def get_metadata_path(filename: str) -> str:
+    stem_name = Path(filename).stem
+    return os.path.join(CACHE_DIR, f"{stem_name}.meta.json")
+
+
+def load_cached_metadata(filename: str):
+    metadata_path = get_metadata_path(filename)
+    if not os.path.exists(metadata_path):
+        return None
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return None
+
+
+def save_cached_metadata(filename: str, bpm: float, key_signature: str, onset_offset_seconds: float):
+    metadata_path = get_metadata_path(filename)
+    payload = {
+        "bpm": bpm,
+        "key": key_signature,
+        "onset_offset_seconds": onset_offset_seconds,
+    }
+    try:
+        with open(metadata_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+    except Exception as exc:
+        print(f"⚠️ Could not persist metadata for {filename}: {exc}")
+
+
+def enqueue_metadata_analysis(file_path: str, filename: str):
+    def _analyze_and_cache():
+        try:
+            bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
+            save_cached_metadata(filename, bpm, key_signature, onset_offset_seconds)
+            print(f"🧠 Background metadata analysis complete for {filename}")
+        except Exception as exc:
+            print(f"⚠️ Background metadata analysis failed for {filename}: {exc}")
+
+    threading.Thread(target=_analyze_and_cache, daemon=True).start()
 
 
 @app.get("/")
@@ -163,27 +221,26 @@ def run_demucs_splitter(song_path, cache_dir=CACHE_DIR):
 
 
 @app.post("/api/upload/song")
-async def upload_full_song(file: UploadFile = File(...)):
+async def upload_full_song(file: UploadFile = File(...), session_cache: str = Depends(get_session_cache_dir)):
     """
-    Upload a full song and split it into stems (vocals/bass/drums/other) via Demucs.
+    Upload a full song and split it into stems via Demucs inside a private session folder.
     """
     supported_extensions = (".wav", ".mp3", ".ogg")
     if not file.filename.lower().endswith(supported_extensions):
         raise HTTPException(status_code=400, detail="Unsupported audio file format.")
 
     clean_filename = file.filename.replace(" ", "_")
-    temp_upload_path = os.path.join(CACHE_DIR, f"{clean_filename}")
+    # 🚀 FIX: Route file straight to the isolated user subfolder
+    temp_upload_path = os.path.join(session_cache, clean_filename)
 
     try:
-        # 1. Write incoming song temporarily to disk
         with open(temp_upload_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
 
-        # 2. Trigger the Demucs splitting engine
-        success = run_demucs_splitter(temp_upload_path)
+        # 🚀 FIX: Tell Demucs to dump output files into the private session_cache directory
+        success = run_demucs_splitter(temp_upload_path, cache_dir=session_cache)
 
-        # 3. Always delete the temporary source file
         if os.path.exists(temp_upload_path):
             os.remove(temp_upload_path)
 
@@ -192,7 +249,7 @@ async def upload_full_song(file: UploadFile = File(...)):
 
         return {
             "success": True,
-            "message": "Song successfully isolated into custom flat stems!"
+            "message": "Song successfully isolated into private session stems!"
         }
     except Exception as e:
         if os.path.exists(temp_upload_path):
@@ -236,24 +293,16 @@ def analyze_audio_properties(file_path: str):
     Analyzes an audio file and extracts BPM, musical key, and the first strong onset offset.
     """
     try:
-        y, sr = librosa.load(file_path, sr=22050)
-        # 1. Calculate BPM and beat positions robustly
+        y, sr = librosa.load(file_path, sr=11025, duration=20.0)
+
         try:
-            # beat_track returns (tempo, beat_frames)
-            tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-            # tempo may be numpy scalar/array — coerce safely
-            tempo_arr = np.asarray(tempo)
-            if tempo_arr.size == 0:
-                bpm = 120.0
-            else:
-                # if multiple estimations, take the mean
-                bpm = float(np.mean(tempo_arr)) if tempo_arr.size > 1 else float(tempo_arr.item())
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+            bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
             if not np.isfinite(bpm) or bpm <= 0:
                 bpm = 120.0
         except Exception:
             bpm = 120.0
 
-        # 2. Find the first strong onset so we can align off-beat starts consistently
         try:
             onset_frames = librosa.onset.onset_detect(y=y, sr=sr, backtrack=True)
             if len(onset_frames) > 0:
@@ -263,9 +312,8 @@ def analyze_audio_properties(file_path: str):
         except Exception:
             onset_offset_seconds = 0.0
 
-        # 3. Key Estimation Math (Using chromagram profile analysis)
         try:
-            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+            chroma = librosa.feature.chroma_stft(y=y, sr=sr)
             chroma_avg = np.mean(chroma, axis=1)
             key_idx = int(np.argmax(chroma_avg))
             is_minor = chroma_avg[(key_idx + 3) % 12] > chroma_avg[(key_idx + 4) % 12]
@@ -280,7 +328,7 @@ def analyze_audio_properties(file_path: str):
         return 120.0, "C", 0.0
 
 
-def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int = 15):
+def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int = 8):
     try:
         future = analysis_executor.submit(analyze_audio_properties, file_path)
         return future.result(timeout=timeout_seconds)
@@ -293,9 +341,9 @@ def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int =
 
 
 @app.post("/api/upload")
-async def upload_audio_stem(file: UploadFile = File(...)):
+async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = Depends(get_session_cache_dir)):
     """
-    Upload an already-isolated stem directly and analyze its BPM/key.
+    Upload an already-isolated stem directly to a user's session cache and analyze properties.
     """
     if file.filename is None or not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided for upload.")
@@ -308,7 +356,8 @@ async def upload_audio_stem(file: UploadFile = File(...)):
         )
 
     clean_filename = file.filename.replace(" ", "_")
-    destination_path = make_unique_cache_path(clean_filename)
+    # 🚀 FIX: Pass the user's session cache directory down to make it isolated
+    destination_path = make_unique_cache_path(clean_filename, cache_dir=session_cache)
     saved_filename = os.path.basename(destination_path)
 
     try:
@@ -321,7 +370,9 @@ async def upload_audio_stem(file: UploadFile = File(...)):
 
         print(f"📥 Successfully cached new source file: {saved_filename}")
 
-        bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=15)
+        bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=8)
+        save_cached_metadata(saved_filename, bpm, key_sig, onset_offset_seconds)
+        enqueue_metadata_analysis(destination_path, saved_filename)
         print(f"📊 Live Scan Results -> {bpm} BPM | Key: {key_sig} | Onset {onset_offset_seconds:.3f}s")
 
         return {
@@ -344,16 +395,16 @@ async def upload_audio_stem(file: UploadFile = File(...)):
 
 
 @app.get("/api/stems")
-async def get_available_stems():
+async def get_available_stems(session_cache: str = Depends(get_session_cache_dir)):
     stems = []
     supported_extensions = (".wav", ".mp3", ".ogg")
-    files = [f for f in os.listdir(CACHE_DIR) if f.lower().endswith(supported_extensions)]
+    
+    # 🚀 FIX: Read only from the user's session cache subfolder
+    files = [f for f in os.listdir(session_cache) if f.lower().endswith(supported_extensions)]
 
     for idx, filename in enumerate(files):
-        file_path = os.path.join(CACHE_DIR, filename)
-
-        # Pull real properties instantly
-        bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
+        file_path = os.path.join(session_cache, filename)
+        cached_metadata = load_cached_metadata(filename)
 
         name_lower = filename.lower()
         if "vocal" in name_lower or "vox" in name_lower:
@@ -365,9 +416,7 @@ async def get_available_stems():
         else:
             stem_type = "other"
 
-        # Extract song name without stem type suffix
         base_name = filename.replace("_", " ").split(".")[0]
-        # Remove stem type keywords from the end of the name
         for keyword in ["vocals", "drums", "bass", "other", "vox", "beat"]:
             if base_name.lower().endswith(" " + keyword):
                 base_name = base_name[:-len(keyword)-1]
@@ -380,9 +429,9 @@ async def get_available_stems():
             "stem_type": stem_type,
             "duration_seconds": get_audio_duration(file_path),
             "filename": filename,
-            "bpm": bpm,            # 🚀 Send to client
-            "key": key_signature,  # 🚀 Send to client
-            "onset_offset_seconds": onset_offset_seconds
+            "bpm": cached_metadata.get("bpm", 120.0) if cached_metadata else 120.0,
+            "key": cached_metadata.get("key", "C") if cached_metadata else "C",
+            "onset_offset_seconds": cached_metadata.get("onset_offset_seconds", 0.0) if cached_metadata else 0.0
         })
     return stems
 
@@ -453,26 +502,24 @@ def process_and_align_stem(file_path: str, target_bpm: float, start_offset: floa
 
 
 @app.post("/api/mix")
-async def render_mashup_matrix(payload: MixMatrixPayload):
+async def render_mashup_matrix(payload: MixMatrixPayload, session_cache: str = Depends(get_session_cache_dir)):
     if not payload.clips:
         raise HTTPException(status_code=400, detail="Timeline grid layout matrix is empty.")
 
-    TARGET_SR = 22050   # Universal processing sample rate
+    TARGET_SR = 22050 
 
-    # 🎯 STEP 1: DYNAMICALLY CALCULATE OPTIMAL BPM
-    # Gather the true analyzed source BPM for every file on the timeline
     source_bpms = []
     valid_clips = []
 
     for clip in payload.clips:
-        file_path = os.path.join(CACHE_DIR, clip.filename)
+        # 🚀 FIX: Locate timeline stems within the private session cache
+        file_path = os.path.join(session_cache, clip.filename)
         if not os.path.exists(file_path):
             print(f"⚠️ Track missing from folder cache directory: {clip.filename}")
             continue
 
         valid_clips.append(clip)
 
-        # Pull the accurate BPM for this file using our existing formula
         try:
             y, sr = librosa.load(file_path, sr=TARGET_SR)
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
@@ -482,23 +529,19 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
         except Exception:
             pass
 
-    # Fallback to 120 only if no clips could be parsed, otherwise use the optimal average
     TARGET_BPM = round(sum(source_bpms) / len(source_bpms), 1) if source_bpms else 120.0
 
     print(f"\n🚀 Starting Dynamic Master Mixdown Render...")
-    print(f"📊 Analyzed track speeds: {[round(b, 1) for b in source_bpms]}")
-    print(f"🎯 Calculated Optimal Project Target Tempo: {TARGET_BPM} BPM\n")
-
     processed_tracks = []
     max_length = 0
 
-    # 2. Process and stretch each individual track to match the dynamic TARGET_BPM
     for clip in valid_clips:
-        file_path = os.path.join(CACHE_DIR, clip.filename)
+        # 🚀 FIX: Read raw waves using the session cache variable layout path
+        file_path = os.path.join(session_cache, clip.filename)
 
         y_aligned = process_and_align_stem(
             file_path=file_path,
-            target_bpm=TARGET_BPM,  # 🏎️ Uses the dynamic average instead of static 120!
+            target_bpm=TARGET_BPM,
             start_offset=clip.start_offset_seconds,
             audio_start_offset=clip.audio_start_offset_seconds,
             target_sr=TARGET_SR
@@ -516,18 +559,14 @@ async def render_mashup_matrix(payload: MixMatrixPayload):
     if not processed_tracks:
         raise HTTPException(status_code=404, detail="No source audio files found to mix down.")
 
-    # 3. Mash the arrays together into one master grid matrix
     master_mix = np.zeros(max_length, dtype=np.float32)
     for track in processed_tracks:
         master_mix[:len(track)] += track
 
-    # 4. Normalize peaks to prevent clipping distortion
     max_peak = np.max(np.abs(master_mix))
     if max_peak > 1.0:
         master_mix /= max_peak
-        print("🎚️ Master level normalized to safeguard against clipping distortion.")
 
-    # 5. Write the finished mashup to disk
     output_filename = "master_mashup_mix.wav"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
