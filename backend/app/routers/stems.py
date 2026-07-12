@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pathlib import Path
 from app.dependencies import get_session_cache_dir
 from app.services.audio_processing import (
-    load_cached_metadata, save_cached_metadata, get_audio_duration,
-    analyze_audio_properties_with_timeout, enqueue_metadata_analysis, make_unique_cache_path
+    load_cached_metadata, load_cached_metadata_from_path, save_cached_metadata, get_audio_duration,
+    analyze_audio_properties_with_timeout, enqueue_metadata_analysis, make_unique_cache_path, save_cached_metadata_from_path
 )
 
 router = APIRouter(prefix="/api", tags=["stems"])
@@ -60,15 +60,25 @@ async def upload_full_song(file: UploadFile = File(...), session_cache: str = De
 async def get_available_stems(session_cache: str = Depends(get_session_cache_dir)):
     stems = []
     files = [f for f in os.listdir(session_cache) if f.lower().endswith((".wav", ".mp3", ".ogg"))]
+    
+    print(f"🔍 [GET STEMS] Scanning session cache folder: {session_cache} (Found {len(files)} tracks)")
+
     for idx, filename in enumerate(files):
         file_path = os.path.join(session_cache, filename)
-        cached_metadata = load_cached_metadata(filename)
+        
+        # 🚀 FIX: Load cache using the unique full file path
+        cached_metadata = load_cached_metadata_from_path(file_path)
+        
         name_lower = filename.lower()
         stem_type = "vocals" if "vocal" in name_lower or "vox" in name_lower else "drums" if "drum" in name_lower or "beat" in name_lower else "bass" if "bass" in name_lower else "other"
         base_name = filename.replace("_", " ").split(".")[0]
+        
         stems.append({
-            "id": f"real_{idx}", "song_name": base_name.title(), "stem_type": stem_type,
-            "duration_seconds": get_audio_duration(file_path), "filename": filename,
+            "id": f"real_{idx}", 
+            "song_name": base_name.title(), 
+            "stem_type": stem_type,
+            "duration_seconds": get_audio_duration(file_path), 
+            "filename": filename,
             "bpm": cached_metadata.get("bpm", 120.0) if cached_metadata else 120.0,
             "key": cached_metadata.get("key", "C") if cached_metadata else "C",
             "onset_offset_seconds": cached_metadata.get("onset_offset_seconds", 0.0) if cached_metadata else 0.0
@@ -80,12 +90,27 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
     clean_filename = file.filename.replace(" ", "_")
     destination_path = make_unique_cache_path(clean_filename, cache_dir=session_cache)
     saved_filename = os.path.basename(destination_path)
+    
+    print(f"📥 [UPLOAD STEM] Storing {saved_filename} inside session subfolder...")
     try:
-        with open(destination_path, "wb") as buffer: buffer.write(await file.read())
+        with open(destination_path, "wb") as buffer: 
+            buffer.write(await file.read())
+        
+        # Quick check for UI immediate response
         bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=8)
-        save_cached_metadata(saved_filename, bpm, key_sig, onset_offset_seconds)
-        enqueue_metadata_analysis(destination_path, saved_filename)
-        return {"success": True, "filename": saved_filename, "bpm": bpm, "key": key_sig, "onset_offset_seconds": onset_offset_seconds}
+        
+        # 🚀 FIX: Save the metadata and fire background threads using full destination paths
+        save_cached_metadata_from_path(destination_path, bpm, key_sig, onset_offset_seconds)
+        enqueue_metadata_analysis(destination_path)
+        
+        return {
+            "success": True, 
+            "filename": saved_filename, 
+            "bpm": bpm, 
+            "key": key_sig, 
+            "onset_offset_seconds": onset_offset_seconds
+        }
     except Exception as e:
+        print(f"❌ [UPLOAD ERROR] Direct stem processing failed: {e}")
         if os.path.exists(destination_path): os.remove(destination_path)
         raise HTTPException(status_code=500, detail=str(e))

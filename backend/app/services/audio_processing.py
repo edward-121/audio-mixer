@@ -9,52 +9,67 @@ from mutagen import File as MutagenFile
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CACHE_DIR = os.environ.get("CACHE_DIR", str(BASE_DIR / "stem_cache"))
 analysis_executor = ThreadPoolExecutor(max_workers=1)
 PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-def get_metadata_path(filename: str) -> str:
-    stem_name = Path(filename).stem
-    return os.path.join(CACHE_DIR, f"{stem_name}.meta.json")
+def get_metadata_path(file_path_or_dir: str, filename: str | None = None) -> str:
+    """
+    🚀 FIXED: Dynamically calculates the metadata path relative to the file's true 
+    session directory instead of forcing it into the global root CACHE_DIR.
+    """
+    if filename:
+        # If passed a directory path and a filename
+        stem_name = Path(filename).stem
+        return os.path.join(file_path_or_dir, f"{stem_name}.meta.json")
+    else:
+        # If passed a full file path directly
+        p = Path(file_path_or_dir)
+        return os.path.join(str(p.parent), f"{p.stem}.meta.json")
 
-def load_cached_metadata(filename: str):
-    metadata_path = get_metadata_path(filename)
-    if not os.path.exists(metadata_path): return None
+def load_cached_metadata_from_path(file_path: str):
+    """🚀 NEW: Session-aware metadata loader"""
+    metadata_path = get_metadata_path(file_path)
+    if not os.path.exists(metadata_path): 
+        return None
     try:
         with open(metadata_path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except Exception: return None
+            data = json.load(handle)
+            print(f"📊 [METADATA READ] Found cache for {Path(file_path).name} -> {data}")
+            return data
+    except Exception as e: 
+        print(f"⚠️ [METADATA ERROR] Failed to read cache: {e}")
+        return None
 
-def save_cached_metadata(filename: str, bpm: float, key_signature: str, onset_offset_seconds: float):
-    metadata_path = get_metadata_path(filename)
+def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: str, onset_offset_seconds: float):
+    """🚀 NEW: Session-aware metadata saver"""
+    metadata_path = get_metadata_path(file_path)
     payload = {"bpm": bpm, "key": key_signature, "onset_offset_seconds": onset_offset_seconds}
     try:
         with open(metadata_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle)
+        print(f"💾 [METADATA WRITE] Saved cache for {Path(file_path).name} to {metadata_path} -> {payload}")
     except Exception as exc:
-        print(f"⚠️ Could not persist metadata: {exc}")
-
-def get_audio_duration(file_path: str) -> int:
-    try:
-        audio = MutagenFile(file_path)
-        if audio is not None and audio.info is not None:
-            return int(audio.info.length)
-    except Exception: pass
-    return 180
+        print(f"⚠️ [METADATA ERROR] Could not persist metadata: {exc}")
 
 def analyze_audio_properties(file_path: str):
+    print(f"🕵️‍♂️ [ANALYZER] Starting deep analysis on: {Path(file_path).name}")
     try:
+        # Load a low sample-rate copy for lightweight computation
         y, sr = librosa.load(file_path, sr=11025, duration=20.0)
+        
         try:
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
             bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
             if not np.isfinite(bpm) or bpm <= 0: bpm = 120.0
-        except Exception: bpm = 120.0
+        except Exception as e: 
+            print(f"⚠️ [ANALYZER WARNING] BPM calculation failed, defaulting to 120: {e}")
+            bpm = 120.0
 
         try:
             onset_frames = librosa.onset.onset_detect(y=y, sr=sr, backtrack=True)
             onset_offset_seconds = float(librosa.frames_to_time(int(onset_frames[0]), sr=sr)) if len(onset_frames) > 0 else 0.0
-        except Exception: onset_offset_seconds = 0.0
+        except Exception: 
+            onset_offset_seconds = 0.0
 
         try:
             chroma = librosa.feature.chroma_stft(y=y, sr=sr)
@@ -62,25 +77,36 @@ def analyze_audio_properties(file_path: str):
             key_idx = int(np.argmax(chroma_avg))
             is_minor = chroma_avg[(key_idx + 3) % 12] > chroma_avg[(key_idx + 4) % 12]
             estimated_key = f"{PITCH_CLASSES[key_idx]}{'m' if is_minor else ''}"
-        except Exception: estimated_key = "C"
+        except Exception: 
+            estimated_key = "C"
 
+        print(f"✅ [ANALYZER SUCCESS] Analyzed {Path(file_path).name} -> {round(bpm, 1)} BPM | Key: {estimated_key}")
         return round(bpm, 1), estimated_key, round(onset_offset_seconds, 3)
-    except Exception:
+    except Exception as e:
+        print(f"❌ [ANALYZER CRITICAL] Failed to read audio file: {e}")
         return 120.0, "C", 0.0
 
 def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int = 8):
+    print(f"⏱️ [TIMEOUT GUARD] Running quick sync check on {Path(file_path).name} (Max {timeout_seconds}s)")
     try:
         future = analysis_executor.submit(analyze_audio_properties, file_path)
         return future.result(timeout=timeout_seconds)
-    except (TimeoutError, Exception):
+    except TimeoutError:
+        print(f"⏳ [TIMEOUT HIT] Sync check hit {timeout_seconds}s limit for {Path(file_path).name}. Handing off to background thread.")
+        return 120.0, "C", 0.0
+    except Exception as e:
+        print(f"❌ [TIMEOUT ERROR] Sync check failed: {e}")
         return 120.0, "C", 0.0
 
-def enqueue_metadata_analysis(file_path: str, filename: str):
+def enqueue_metadata_analysis(file_path: str):
+    """🚀 UPDATED: Enqueues background worker matching correct folder targets"""
     def _analyze_and_cache():
+        print(f"🧵 [THREAD] Background worker thread spawned for {Path(file_path).name}")
         try:
             bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
-            save_cached_metadata(filename, bpm, key_signature, onset_offset_seconds)
-        except Exception: pass
+            save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
+        except Exception as e: 
+            print(f"❌ [THREAD ERROR] Background thread died: {e}")
     threading.Thread(target=_analyze_and_cache, daemon=True).start()
 
 def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):

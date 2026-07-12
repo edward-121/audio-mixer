@@ -683,7 +683,7 @@ export default function StudioBoard() {
           {isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center text-neutral-500 gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
-              <span className="text-xs">Connecting to local AI storage...</span>
+              <span className="text-xs">Connecting to local storage...</span>
             </div>
           ) : (
             <div className="flex flex-col gap-2 overflow-y-auto pr-1">
