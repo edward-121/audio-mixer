@@ -5,8 +5,12 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pathlib import Path
 from app.dependencies import get_session_cache_dir
 from app.services.audio_processing import (
-    load_cached_metadata, load_cached_metadata_from_path, save_cached_metadata, get_audio_duration,
-    analyze_audio_properties_with_timeout, enqueue_metadata_analysis, make_unique_cache_path, save_cached_metadata_from_path
+    load_cached_metadata_from_path,     
+    save_cached_metadata_from_path,    
+    get_audio_duration,
+    analyze_audio_properties_with_timeout, 
+    enqueue_metadata_analysis, 
+    make_unique_cache_path
 )
 
 router = APIRouter(prefix="/api", tags=["stems"])

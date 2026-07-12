@@ -5,29 +5,39 @@ import librosa
 import soundfile as sf
 import numpy as np
 from pathlib import Path
-from mutagen import File as MutagenFile
+from mutagen import File as MutagenFile 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 analysis_executor = ThreadPoolExecutor(max_workers=1)
 PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
+def get_audio_duration(file_path: str) -> int:
+    """
+    ⏱️ Extracts the precise audio playback runtime length in seconds using Mutagen.
+    """
+    try:
+        audio = MutagenFile(file_path)
+        if audio is not None and audio.info is not None:
+            return int(audio.info.length)
+    except Exception as e:
+        print(f"⚠️ [DURATION WARNING] Failed reading duration via Mutagen for {Path(file_path).name}: {e}")
+    return 180 
+
 def get_metadata_path(file_path_or_dir: str, filename: str | None = None) -> str:
     """
-    🚀 FIXED: Dynamically calculates the metadata path relative to the file's true 
-    session directory instead of forcing it into the global root CACHE_DIR.
+    🚀 FIXED: Calculates the metadata path relative to the file's true 
+    session directory instead of forcing it into the global root folder.
     """
     if filename:
-        # If passed a directory path and a filename
         stem_name = Path(filename).stem
         return os.path.join(file_path_or_dir, f"{stem_name}.meta.json")
     else:
-        # If passed a full file path directly
         p = Path(file_path_or_dir)
         return os.path.join(str(p.parent), f"{p.stem}.meta.json")
 
 def load_cached_metadata_from_path(file_path: str):
-    """🚀 NEW: Session-aware metadata loader"""
+    """Session-aware metadata loader"""
     metadata_path = get_metadata_path(file_path)
     if not os.path.exists(metadata_path): 
         return None
@@ -41,7 +51,7 @@ def load_cached_metadata_from_path(file_path: str):
         return None
 
 def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: str, onset_offset_seconds: float):
-    """🚀 NEW: Session-aware metadata saver"""
+    """Session-aware metadata saver"""
     metadata_path = get_metadata_path(file_path)
     payload = {"bpm": bpm, "key": key_signature, "onset_offset_seconds": onset_offset_seconds}
     try:
@@ -54,7 +64,6 @@ def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: st
 def analyze_audio_properties(file_path: str):
     print(f"🕵️‍♂️ [ANALYZER] Starting deep analysis on: {Path(file_path).name}")
     try:
-        # Load a low sample-rate copy for lightweight computation
         y, sr = librosa.load(file_path, sr=11025, duration=20.0)
         
         try:
@@ -99,7 +108,7 @@ def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int =
         return 120.0, "C", 0.0
 
 def enqueue_metadata_analysis(file_path: str):
-    """🚀 UPDATED: Enqueues background worker matching correct folder targets"""
+    """Enqueues background worker matching correct folder targets"""
     def _analyze_and_cache():
         print(f"🧵 [THREAD] Background worker thread spawned for {Path(file_path).name}")
         try:
@@ -110,12 +119,14 @@ def enqueue_metadata_analysis(file_path: str):
     threading.Thread(target=_analyze_and_cache, daemon=True).start()
 
 def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):
+    """Time-stretches and pads the clip array to perfectly snap grid items to the tempo map"""
     y, sr = librosa.load(file_path, sr=target_sr)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     try:
         source_bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
         if source_bpm <= 0: source_bpm = 120.0
-    except Exception: source_bpm = 120.0
+    except Exception: 
+        source_bpm = 120.0
 
     if audio_start_offset > 0:
         start_sample = min(len(y), int(audio_start_offset * sr))
@@ -128,6 +139,7 @@ def process_and_align_stem(file_path: str, target_bpm: float, start_offset: floa
     return np.concatenate([np.zeros(silence_samples, dtype=np.float32), y_stretched]) if silence_samples > 0 else y_stretched
 
 def make_unique_cache_path(filename: str, cache_dir: str) -> str:
+    """Safeguards user folder configurations against duplicate filename overwrites"""
     base_name, extension = os.path.splitext(filename)
     candidate_path = os.path.join(cache_dir, filename)
     counter = 1
