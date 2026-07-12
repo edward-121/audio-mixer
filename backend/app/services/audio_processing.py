@@ -102,6 +102,8 @@ def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int =
         return future.result(timeout=timeout_seconds)
     except TimeoutError:
         print(f"⏳ [TIMEOUT HIT] Sync check hit {timeout_seconds}s limit for {Path(file_path).name}. Handing off to background thread.")
+        # 🚀 CHANGE: Return the fallback values to the API, but DO NOT save them to disk yet!
+        # This keeps the cache empty so the background thread can overwrite it cleanly.
         return 120.0, "C", 0.0
     except Exception as e:
         print(f"❌ [TIMEOUT ERROR] Sync check failed: {e}")
@@ -112,10 +114,15 @@ def enqueue_metadata_analysis(file_path: str):
     def _analyze_and_cache():
         print(f"🧵 [THREAD] Background worker thread spawned for {Path(file_path).name}")
         try:
+            # Run the deep math calculation
             bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
+            
+            # 🚀 Save the real, calculated values directly to disk
             save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
+            print(f"🎉 [THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")
         except Exception as e: 
             print(f"❌ [THREAD ERROR] Background thread died: {e}")
+            
     threading.Thread(target=_analyze_and_cache, daemon=True).start()
 
 def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):
