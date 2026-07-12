@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import librosa
 import soundfile as sf
 import numpy as np
@@ -36,6 +37,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = FastAPI(title="Audio Mixer Backend AI")
+
+analysis_executor = ThreadPoolExecutor(max_workers=1)
 
 
 @app.get("/")
@@ -277,10 +280,20 @@ def analyze_audio_properties(file_path: str):
         return 120.0, "C", 0.0
 
 
-# 🚀 FIX: Notice we changed 'async def' to standard 'def'
-# This tells FastAPI to handle the heavy audio calculations safely in a background thread.
+def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int = 15):
+    try:
+        future = analysis_executor.submit(analyze_audio_properties, file_path)
+        return future.result(timeout=timeout_seconds)
+    except TimeoutError:
+        print(f"⚠️ Audio analysis timed out for {os.path.basename(file_path)}; using fallback metadata.")
+        return 120.0, "C", 0.0
+    except Exception as e:
+        print(f"⚠️ Audio analysis failed for {os.path.basename(file_path)}: {e}")
+        return 120.0, "C", 0.0
+
+
 @app.post("/api/upload")
-def upload_audio_stem(file: UploadFile = File(...)):
+async def upload_audio_stem(file: UploadFile = File(...)):
     """
     Upload an already-isolated stem directly and analyze its BPM/key.
     """
@@ -299,15 +312,16 @@ def upload_audio_stem(file: UploadFile = File(...)):
     saved_filename = os.path.basename(destination_path)
 
     try:
+        print(f"📥 Receiving upload for {saved_filename}")
         with open(destination_path, "wb") as buffer:
-            content = file.file.read()
+            content = await file.read()
             if not content:
                 raise HTTPException(status_code=400, detail="Uploaded file is empty.")
             buffer.write(content)
 
         print(f"📥 Successfully cached new source file: {saved_filename}")
 
-        bpm, key_sig, onset_offset_seconds = analyze_audio_properties(destination_path)
+        bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=15)
         print(f"📊 Live Scan Results -> {bpm} BPM | Key: {key_sig} | Onset {onset_offset_seconds:.3f}s")
 
         return {
