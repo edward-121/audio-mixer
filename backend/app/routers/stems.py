@@ -128,26 +128,29 @@ async def delete_stem_group(
     song_name: str, 
     session_cache: str = Depends(get_session_cache_dir)
 ):
-    """Deletes all stems and metadata JSON files matching a song name"""
-    # DECODE URL ENCODING (%20, %26, etc.)
-    decoded_song_name = urllib.parse.unquote(song_name)
+    """Deletes all stems, audio files, and metadata JSON files matching a song name"""
+    decoded_song_name = urllib.parse.unquote(song_name).strip()
+    print(f"[DELETE GROUP] Removing all stems matching query: '{decoded_song_name}'")
     
-    print(f"[DELETE GROUP] Removing all stems matching: {decoded_song_name}")
+    # Split query into words to match partial names (e.g., "Bones" matches "bones.mp3", "bones_vocals.wav")
+    query_tokens = [token.lower() for token in decoded_song_name.replace("_", " ").split() if token]
     deleted_count = 0
-    clean_song_name = decoded_song_name.lower().replace(" ", "_")
     
     if os.path.exists(session_cache):
         for file in os.listdir(session_cache):
             file_lower = file.lower()
-            # Match song name or cleaned base name
-            if clean_song_name in file_lower:
+            
+            # Match if ANY key word from the song name exists in the filename
+            if any(token in file_lower for token in query_tokens):
                 file_path = os.path.join(session_cache, file)
                 try:
                     os.remove(file_path)
                     deleted_count += 1
-                    print(f"  └─ Deleted: {file}")
+                    print(f"  └─ Successfully Deleted: {file}")
                 except Exception as e:
                     print(f"[DELETE ERROR] Could not remove {file}: {e}")
+
+    print(f"[DELETE GROUP] Finished. Total files removed: {deleted_count}")
 
     # Trigger SSE update so all frontend clients refresh automatically
     import sys
