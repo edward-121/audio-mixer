@@ -70,7 +70,7 @@ async def get_available_stems(session_cache: str = Depends(get_session_cache_dir
     for idx, filename in enumerate(files):
         file_path = os.path.join(session_cache, filename)
         
-        # 🚀 FIX: Load cache using the unique full file path
+        # Load cache using the unique full file path
         cached_metadata = load_cached_metadata_from_path(file_path)
         
         name_lower = filename.lower()
@@ -95,7 +95,7 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
     destination_path = make_unique_cache_path(clean_filename, cache_dir=session_cache)
     saved_filename = os.path.basename(destination_path)
     
-    print(f"📥 [UPLOAD STEM] Storing {saved_filename} inside session subfolder...")
+    print(f"[UPLOAD STEM] Storing {saved_filename} inside session subfolder...")
     try:
         with open(destination_path, "wb") as buffer: 
             buffer.write(await file.read())
@@ -118,6 +118,6 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
             "onset_offset_seconds": onset_offset_seconds
         }
     except Exception as e:
-        print(f"❌ [UPLOAD ERROR] Direct stem processing failed: {e}")
+        print(f"[UPLOAD ERROR] Direct stem processing failed: {e}")
         if os.path.exists(destination_path): os.remove(destination_path)
         raise HTTPException(status_code=500, detail=str(e))

@@ -44,10 +44,10 @@ def load_cached_metadata_from_path(file_path: str):
     try:
         with open(metadata_path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-            print(f"📊 [METADATA READ] Found cache for {Path(file_path).name} -> {data}")
+            print(f"[METADATA READ] Found cache for {Path(file_path).name} -> {data}")
             return data
     except Exception as e: 
-        print(f"⚠️ [METADATA ERROR] Failed to read cache: {e}")
+        print(f"[METADATA ERROR] Failed to read cache: {e}")
         return None
 
 def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: str, onset_offset_seconds: float):
@@ -57,12 +57,12 @@ def save_cached_metadata_from_path(file_path: str, bpm: float, key_signature: st
     try:
         with open(metadata_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle)
-        print(f"💾 [METADATA WRITE] Saved cache for {Path(file_path).name} to {metadata_path} -> {payload}")
+        print(f"[METADATA WRITE] Saved cache for {Path(file_path).name} to {metadata_path} -> {payload}")
     except Exception as exc:
-        print(f"⚠️ [METADATA ERROR] Could not persist metadata: {exc}")
+        print(f"[METADATA ERROR] Could not persist metadata: {exc}")
 
 def analyze_audio_properties(file_path: str):
-    print(f"🕵️‍♂️ [ANALYZER] Starting deep analysis on: {Path(file_path).name}")
+    print(f"[ANALYZER] Starting deep analysis on: {Path(file_path).name}")
     try:
         y, sr = librosa.load(file_path, sr=11025, offset=30.0, duration=7.0)
         
@@ -74,7 +74,7 @@ def analyze_audio_properties(file_path: str):
             bpm = float(librosa.feature.tempo(onset_envelope=onset_env, sr=sr)[0])
             if not np.isfinite(bpm) or bpm <= 0: bpm = 120.0
         except Exception as e: 
-            print(f"⚠️ [ANALYZER WARNING] BPM calculation failed: {e}")
+            print(f"[ANALYZER WARNING] BPM calculation failed: {e}")
             bpm = 120.0
 
         try:
@@ -92,41 +92,25 @@ def analyze_audio_properties(file_path: str):
         except Exception: 
             estimated_key = "C"
 
-        print(f"✅ [ANALYZER SUCCESS] Analyzed {Path(file_path).name} -> {round(bpm, 1)} BPM | Key: {estimated_key}")
+        print(f"[ANALYZER SUCCESS] Analyzed {Path(file_path).name} -> {round(bpm, 1)} BPM | Key: {estimated_key}")
         return round(bpm, 1), estimated_key, round(onset_offset_seconds, 3)
     except Exception as e:
-        print(f"❌ [ANALYZER CRITICAL] Failed to read audio file: {e}")
+        print(f"[ANALYZER CRITICAL] Failed to read audio file: {e}")
         return 120.0, "C", 0.0
 
 def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int = 8):
-    print(f"⏱️ [TIMEOUT GUARD] Running quick sync check on {Path(file_path).name} (Max {timeout_seconds}s)")
+    print(f"[TIMEOUT GUARD] Running quick sync check on {Path(file_path).name} (Max {timeout_seconds}s)")
     try:
         future = analysis_executor.submit(analyze_audio_properties, file_path)
         return future.result(timeout=timeout_seconds)
     except TimeoutError:
-        print(f"⏳ [TIMEOUT HIT] Sync check hit {timeout_seconds}s limit for {Path(file_path).name}. Handing off to background thread.")
-        # 🚀 CHANGE: Return the fallback values to the API, but DO NOT save them to disk yet!
+        print(f"[TIMEOUT HIT] Sync check hit {timeout_seconds}s limit for {Path(file_path).name}. Handing off to background thread.")
+        # Return the fallback values to the API, but DO NOT save them to disk yet!
         # This keeps the cache empty so the background thread can overwrite it cleanly.
         return 120.0, "C", 0.0
     except Exception as e:
-        print(f"❌ [TIMEOUT ERROR] Sync check failed: {e}")
+        print(f"[TIMEOUT ERROR] Sync check failed: {e}")
         return 120.0, "C", 0.0
-
-def enqueue_metadata_analysis(file_path: str):
-    """Enqueues background worker matching correct folder targets"""
-    def _analyze_and_cache():
-        print(f"🧵 [THREAD] Background worker thread spawned for {Path(file_path).name}")
-        try:
-            # Run the deep math calculation
-            bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
-            
-            # 🚀 Save the real, calculated values directly to disk
-            save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
-            print(f"🎉 [THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")
-        except Exception as e: 
-            print(f"❌ [THREAD ERROR] Background thread died: {e}")
-            
-    threading.Thread(target=_analyze_and_cache, daemon=True).start()
 
 def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):
     """Time-stretches and pads the clip array to perfectly snap grid items to the tempo map"""
@@ -157,3 +141,23 @@ def make_unique_cache_path(filename: str, cache_dir: str) -> str:
         candidate_path = os.path.join(cache_dir, f"{base_name}_{counter}{extension}")
         counter += 1
     return candidate_path
+
+def enqueue_metadata_analysis(file_path: str):
+    """Enqueues background worker matching correct folder targets"""
+    def _analyze_and_cache():
+        print(f"[THREAD] Background worker thread spawned for {Path(file_path).name}")
+        try:
+            bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
+            
+            # Save the real, calculated values directly to disk
+            save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
+            print(f"[THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")
+            
+            # Trigger SSE notification to React
+            from main import notify_clients_stems_updated
+            notify_clients_stems_updated()
+            
+        except Exception as e: 
+            print(f"[THREAD ERROR] Background thread died: {e}")
+            
+    threading.Thread(target=_analyze_and_cache, daemon=True).start()

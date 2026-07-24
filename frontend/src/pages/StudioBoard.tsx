@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
-import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus } from 'lucide-react';
+import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff } from 'lucide-react';
 
 const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
 const PIXELS_PER_SECOND = 30;
@@ -87,6 +87,30 @@ export default function StudioBoard() {
 
     return Array.from(groups.values());
   }, [stemsPool]);
+
+  useEffect(() => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const eventSource = new EventSource(`${API_BASE_URL}/api/stems/events`);
+
+    eventSource.onmessage = async (event) => {
+      if (event.data === "STEMS_UPDATED") {
+        console.log("SSE Event received! Refreshing stem metadata...");
+
+        // Call your existing function that fetches stems and sets React state
+        const freshStems = await ApiService.getAvailableStems();
+        setStemsPool(freshStems);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("SSE Connection Error:", error);
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, []);
 
   useEffect(() => {
     async function loadRealAudioStems() {
@@ -397,7 +421,7 @@ export default function StudioBoard() {
 
     const labelNode = data.domElement.querySelector('.clip-time-label');
     if (labelNode) {
-      labelNode.textContent = `Starts at: ${newStartTime.toFixed(1)}s`;
+      labelNode.textContent = `${newStartTime.toFixed(1)}s`;
     }
   };
 
@@ -701,14 +725,23 @@ export default function StudioBoard() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <h4 className="font-medium text-sm truncate pr-1">{group.songName}</h4>
-                            <button
-                              onClick={() => handleDeleteStemGroup(group.songName)}
-                              className="text-neutral-500 hover:text-red-400"
-                              title="Delete cached stem group"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {primaryStem && (
+                                <span className="text-xs text-neutral-500 font-mono">
+                                  {formatTimeLabel(primaryStem.duration)}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleDeleteStemGroup(group.songName)}
+                                className="text-neutral-500 hover:text-red-400 transition"
+                                title="Delete cached stem group"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
+
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] uppercase font-mono text-neutral-400">multi-stem</span>
                             {primaryStem && (
@@ -723,9 +756,6 @@ export default function StudioBoard() {
                             )}
                           </div>
                         </div>
-                        {primaryStem && (
-                          <span className="text-xs text-neutral-500 font-mono flex-shrink-0">{formatTimeLabel(primaryStem.duration)}</span>
-                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-1">
@@ -824,7 +854,11 @@ export default function StudioBoard() {
                           <div className="flex justify-between items-center gap-2">
                             <div className="flex flex-col min-w-0 flex-1">
                               <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
-                              <span className="clip-time-label text-[9px] font-mono opacity-70 truncate">Starts at: {clip.startTime.toFixed(1)}s</span>
+                              <div className="flex items-center gap-1.5 text-[9px] font-mono opacity-70">
+                                <span className="clip-time-label">{clip.startTime.toFixed(1)}s</span>
+                                <span>•</span>
+                                <span>{formatTimeLabel(clip.duration ?? clip.stem.duration)}</span>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1 flex-shrink-0">
@@ -845,7 +879,7 @@ export default function StudioBoard() {
                                 className={`p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-neutral-700 hover:text-white transition z-50 cursor-pointer ${clip.muted ? 'bg-yellow-700 text-black' : ''}`}
                                 title={clip.muted ? 'Unmute track' : 'Mute track'}
                               >
-                                {clip.muted ? '🔈' : '🔇'}
+                                {clip.muted ? <VolumeOff className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                               </button>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
