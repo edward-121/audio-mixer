@@ -89,6 +89,30 @@ export default function StudioBoard() {
   }, [stemsPool]);
 
   useEffect(() => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const eventSource = new EventSource(`${API_BASE_URL}/api/stems/events`);
+
+    eventSource.onmessage = async (event) => {
+      if (event.data === "STEMS_UPDATED") {
+        console.log("SSE Event received! Refreshing stem metadata...");
+
+        // Call your existing function that fetches stems and sets React state
+        const freshStems = await ApiService.getAvailableStems();
+        setStemsPool(freshStems);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("SSE Connection Error:", error);
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadRealAudioStems() {
       setIsLoading(true);
       const activeStems = await ApiService.getAvailableStems();

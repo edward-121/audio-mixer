@@ -112,22 +112,6 @@ def analyze_audio_properties_with_timeout(file_path: str, timeout_seconds: int =
         print(f"[TIMEOUT ERROR] Sync check failed: {e}")
         return 120.0, "C", 0.0
 
-def enqueue_metadata_analysis(file_path: str):
-    """Enqueues background worker matching correct folder targets"""
-    def _analyze_and_cache():
-        print(f"[THREAD] Background worker thread spawned for {Path(file_path).name}")
-        try:
-            # Run the deep math calculation
-            bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
-            
-            # 🚀 Save the real, calculated values directly to disk
-            save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
-            print(f"[THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")
-        except Exception as e: 
-            print(f"[THREAD ERROR] Background thread died: {e}")
-            
-    threading.Thread(target=_analyze_and_cache, daemon=True).start()
-
 def process_and_align_stem(file_path: str, target_bpm: float, start_offset: float, audio_start_offset: float = 0.0, target_sr: int = 22050):
     """Time-stretches and pads the clip array to perfectly snap grid items to the tempo map"""
     y, sr = librosa.load(file_path, sr=target_sr)
@@ -157,3 +141,23 @@ def make_unique_cache_path(filename: str, cache_dir: str) -> str:
         candidate_path = os.path.join(cache_dir, f"{base_name}_{counter}{extension}")
         counter += 1
     return candidate_path
+
+def enqueue_metadata_analysis(file_path: str):
+    """Enqueues background worker matching correct folder targets"""
+    def _analyze_and_cache():
+        print(f"[THREAD] Background worker thread spawned for {Path(file_path).name}")
+        try:
+            bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
+            
+            # Save the real, calculated values directly to disk
+            save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
+            print(f"[THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")
+            
+            # Trigger SSE notification to React
+            from main import notify_clients_stems_updated
+            notify_clients_stems_updated()
+            
+        except Exception as e: 
+            print(f"[THREAD ERROR] Background thread died: {e}")
+            
+    threading.Thread(target=_analyze_and_cache, daemon=True).start()
