@@ -170,7 +170,7 @@ async def delete_stem_group(
 
     return {"success": True, "deleted_count": deleted_count}
 
-@router.delete("/api/stems/all")
+@router.delete("/stems/all")
 async def clear_all_session_stems(
     session_cache: str = Depends(get_session_cache_dir)
 ):
