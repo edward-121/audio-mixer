@@ -121,3 +121,31 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
         print(f"[UPLOAD ERROR] Direct stem processing failed: {e}")
         if os.path.exists(destination_path): os.remove(destination_path)
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/stems/group/{song_name}")
+async def delete_stem_group(song_name: str, session_cache: str = Depends(get_session_cache_dir)):
+    """Deletes all stems and metadata JSON files matching a song name"""
+    print(f"[DELETE GROUP] Removing all stems for: {song_name}")
+    deleted_count = 0
+    
+    clean_song_name = song_name.lower().replace(" ", "_")
+    
+    if os.path.exists(session_cache):
+        for file in os.listdir(session_cache):
+            file_lower = file.lower()
+            # Match song name prefix or base filename
+            if clean_song_name in file_lower:
+                file_path = os.path.join(session_cache, file)
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"[DELETE ERROR] Could not remove {file}: {e}")
+
+    # Notify SSE clients to update their state
+    import sys
+    main_mod = sys.modules.get("main") or sys.modules.get("app.main")
+    if main_mod and hasattr(main_mod, "notify_clients_stems_updated"):
+        main_mod.notify_clients_stems_updated()
+
+    return {"success": True, "deleted_files": deleted_count}

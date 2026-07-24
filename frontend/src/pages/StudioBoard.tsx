@@ -3,6 +3,7 @@ import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
 import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
 const PIXELS_PER_SECOND = 30;
 
@@ -89,7 +90,6 @@ export default function StudioBoard() {
   }, [stemsPool]);
 
   useEffect(() => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
     const eventSource = new EventSource(`${API_BASE_URL}/api/stems/events`);
 
     eventSource.onmessage = async (event) => {
@@ -238,13 +238,21 @@ export default function StudioBoard() {
   };
 
   const handleDeleteStemGroup = async (songName: string) => {
-    if (!window.confirm(`Delete all cached stems for ${songName}?`)) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/stems/group/${encodeURIComponent(songName)}`, {
+        method: "DELETE",
+      });
 
-    const result = await ApiService.deleteCachedStems(songName);
-    if (result.success) {
-      const activeStems = await ApiService.getAvailableStems();
-      setStemsPool(activeStems);
-      setClips(prev => prev.filter(clip => clip.stem.songName !== songName));
+      if (response.ok) {
+        console.log(`Successfully deleted stem group: ${songName}`);
+
+        const updatedStems = await ApiService.getAvailableStems();
+        setStemsPool(updatedStems);
+      } else {
+        console.error("Failed to delete stem group from backend.");
+      }
+    } catch (error) {
+      console.error("Error executing delete:", error);
     }
   };
 
