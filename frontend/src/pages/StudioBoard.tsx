@@ -701,14 +701,23 @@ export default function StudioBoard() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <h4 className="font-medium text-sm truncate pr-1">{group.songName}</h4>
-                            <button
-                              onClick={() => handleDeleteStemGroup(group.songName)}
-                              className="text-neutral-500 hover:text-red-400"
-                              title="Delete cached stem group"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {primaryStem && (
+                                <span className="text-xs text-neutral-500 font-mono">
+                                  {formatTimeLabel(primaryStem.duration)}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleDeleteStemGroup(group.songName)}
+                                className="text-neutral-500 hover:text-red-400 transition"
+                                title="Delete cached stem group"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
+
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] uppercase font-mono text-neutral-400">multi-stem</span>
                             {primaryStem && (
@@ -723,9 +732,6 @@ export default function StudioBoard() {
                             )}
                           </div>
                         </div>
-                        {primaryStem && (
-                          <span className="text-xs text-neutral-500 font-mono flex-shrink-0">{formatTimeLabel(primaryStem.duration)}</span>
-                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-1">
