@@ -239,12 +239,20 @@ export default function StudioBoard() {
 
   const handleDeleteStemGroup = async (songName: string) => {
     try {
-      const success = await ApiService.deleteStemGroup(songName);
+      // Pass songName to delete just this specific group
+      const result = await ApiService.deleteCachedStems(songName);
 
-      if (success) {
+      if (result.success) {
         console.log(`Successfully deleted stem group: ${songName}`);
+
+        // Refresh available stems from backend
         const freshStems = await ApiService.getAvailableStems();
         setStemsPool(freshStems);
+
+        // Remove any clips from the timeline board that belonged to this song
+        setClips((prevClips) =>
+          prevClips.filter((clip) => clip.stem.songName !== songName)
+        );
       } else {
         console.error(`Failed to delete group: ${songName}`);
       }
@@ -254,13 +262,30 @@ export default function StudioBoard() {
   };
 
   const handleClearAllStems = async () => {
-    if (!window.confirm("Clear all cached stems from the studio?")) return;
+    if (!window.confirm("Are you sure you want to delete ALL cached audio stems from your session?")) {
+      return;
+    }
 
-    const result = await ApiService.deleteCachedStems('');
-    if (result.success) {
-      const activeStems = await ApiService.getAvailableStems();
-      setStemsPool(activeStems);
-      setClips([]);
+    // Stop playback if playing so no ghost audio keeps playing
+    if (isPlaying) {
+      handleStopPreview();
+    }
+
+    try {
+      const result = await ApiService.deleteCachedStems(); // Targets /api/stems/all
+
+      if (result.success) {
+        // Refresh available stems from backend
+        const activeStems = await ApiService.getAvailableStems();
+        setStemsPool(activeStems);
+
+        // Clear timeline clips from the UI board
+        setClips([]);
+      } else {
+        alert("Failed to clear cached stems. Please check server logs.");
+      }
+    } catch (error) {
+      console.error("Failed to clear stems:", error);
     }
   };
 

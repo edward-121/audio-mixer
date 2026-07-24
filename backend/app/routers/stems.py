@@ -169,3 +169,25 @@ async def delete_stem_group(
         main_mod.notify_clients_stems_updated()
 
     return {"success": True, "deleted_count": deleted_count}
+
+@router.delete("/api/stems/all")
+async def clear_all_session_stems(
+    session_cache: str = Depends(get_session_cache_dir)
+):
+    """Wipes all files inside the active user's session cache directory."""
+    deleted_count = 0
+
+    if os.path.exists(session_cache):
+        for item in os.listdir(session_cache):
+            item_path = os.path.join(session_cache, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                    deleted_count += 1
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    deleted_count += 1
+            except Exception as e:
+                print(f"[CLEAR ALL ERROR] Failed to delete {item_path}: {e}")
+
+    return {"success": True, "deleted_count": deleted_count}

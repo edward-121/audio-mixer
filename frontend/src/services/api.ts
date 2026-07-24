@@ -142,36 +142,28 @@ export const ApiService = {
     /**
      * 🗑️ 3. Correctly routes delete calls to /api/stems/group/{songName}
      */
-    async deleteCachedStems(songName: string): Promise<{ success: boolean; deleted_count: number }> {
-        const endpoint = `/api/stems/group/${encodeURIComponent(songName)}`;
-        const response = await fetch(buildUrl(endpoint), {
-            method: 'DELETE',
-            headers: this.getHeaders(),
-        });
+    async deleteCachedStems(songName?: string): Promise<{ success: boolean; deleted_count: number }> {
+        // 1. If songName is provided and non-empty, target that specific group
+        // 2. Otherwise, target the 'all' endpoint to clear the full user session cache
+        const endpoint = (songName && songName.trim() !== '')
+            ? `/api/stems/group/${encodeURIComponent(songName.trim())}`
+            : `/api/stems/all`;
 
-        if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.detail || 'Failed to delete cached stems.');
-        }
-
-        return response.json();
-    },
-
-    deleteStemGroup: async (songName: string): Promise<boolean> => {
         try {
-            const response = await fetch(
-                `${BACKEND_URL}/api/stems/group/${encodeURIComponent(songName)}`,
-                {
-                    method: "DELETE",
-                    headers: {
-                        "X-Session-ID": getSessionId(),
-                    },
-                }
-            );
-            return response.ok;
+            const response = await fetch(buildUrl(endpoint), {
+                method: 'DELETE',
+                headers: this.getHeaders(),
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to delete cached stems.' }));
+                throw new Error(errData.detail || 'Failed to delete cached stems.');
+            }
+
+            return await response.json();
         } catch (err) {
-            console.error("Delete request failed:", err);
-            return false;
+            console.error("Error in deleteCachedStems:", err);
+            return { success: false, deleted_count: 0 };
         }
     },
 };
