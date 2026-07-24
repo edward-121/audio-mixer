@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import urllib.parse
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pathlib import Path
 from app.dependencies import get_session_cache_dir
@@ -128,11 +129,14 @@ async def delete_stem_group(
     session_cache: str = Depends(get_session_cache_dir)
 ):
     """Deletes all stems and metadata JSON files matching a song name"""
-    print(f"[DELETE GROUP] Removing all stems matching: {song_name}")
-    deleted_count = 0
-    clean_song_name = song_name.lower().replace(" ", "_")
+    # DECODE URL ENCODING (%20, %26, etc.)
+    decoded_song_name = urllib.parse.unquote(song_name)
     
-    if session_cache and os.path.exists(session_cache):
+    print(f"[DELETE GROUP] Removing all stems matching: {decoded_song_name}")
+    deleted_count = 0
+    clean_song_name = decoded_song_name.lower().replace(" ", "_")
+    
+    if os.path.exists(session_cache):
         for file in os.listdir(session_cache):
             file_lower = file.lower()
             # Match song name or cleaned base name
@@ -141,11 +145,11 @@ async def delete_stem_group(
                 try:
                     os.remove(file_path)
                     deleted_count += 1
-                    print(f"  └─ Deleted file: {file}")
+                    print(f"  └─ Deleted: {file}")
                 except Exception as e:
                     print(f"[DELETE ERROR] Could not remove {file}: {e}")
 
-    # Broadcast SSE update so frontend automatically refreshes
+    # Trigger SSE update so all frontend clients refresh automatically
     import sys
     main_mod = sys.modules.get("main") or sys.modules.get("app.main")
     if main_mod and hasattr(main_mod, "notify_clients_stems_updated"):
