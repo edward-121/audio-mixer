@@ -45,20 +45,18 @@ export const ApiService = {
         try {
             const response = await fetch(buildUrl('/api/stems'), {
                 method: "GET",
-                headers: this.getHeaders() // 🚀 Injected Session Header
+                headers: this.getHeaders()
             });
             if (!response.ok) throw new Error('Failed to synchronize stems pool.');
 
             const data = await response.json();
             const sessionId = getSessionId();
 
-            // Map incoming database items to match our TypeScript timeline UI attributes
             return data.map((item: any) => ({
                 id: item.id,
                 songName: item.song_name,
                 stemType: item.stem_type,
                 duration: item.duration_seconds,
-                // 🚀 FIX: Update the URL route so the audio player drills into your private folder path
                 fileUrl: buildUrl(`/stems/${sessionId}/${item.filename}`),
                 color: this.getStemColor(item.stem_type),
                 bpm: Math.round(item.bpm), 
@@ -72,17 +70,17 @@ export const ApiService = {
     },
 
     /**
-     * 2. Sends the exact layout configuration layout back to Python to cook up the final WAV mix
+     * 2. Sends the layout configuration back to Python to cook up the final WAV mix
      */
     async renderMashupMatrix(clips: any[]): Promise<{ success: boolean; downloadUrl?: string }> {
         try {
             const response = await fetch(buildUrl('/api/mix'), {
                 method: 'POST',
-                headers: this.getHeaders({ 'Content-Type': 'application/json' }), // 🚀 Injected Session Header
+                headers: this.getHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ clips })
             });
 
-            if (!response.ok) throw new Error('Backend failed to render the timeline array matrix.');
+            if (!response.ok) throw new Error('Backend failed to render timeline matrix.');
             const data = await response.json();
             return {
                 ...data,
@@ -94,7 +92,6 @@ export const ApiService = {
         }
     },
 
-    // Helper mapping UI themes to specific musical bands
     getStemColor(type: string): string {
         switch (type) {
             case 'vocals': return 'bg-pink-500/80 border-pink-400';
@@ -110,7 +107,7 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload'), {
             method: "POST",
-            headers: this.getHeaders(), // 🚀 Injected Session Header
+            headers: this.getHeaders(),
             body: formData, 
         });
 
@@ -128,7 +125,7 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload/song'), {
             method: "POST",
-            headers: this.getHeaders(), // 🚀 Injected Session Header
+            headers: this.getHeaders(),
             body: formData,
         });
 
@@ -140,11 +137,14 @@ export const ApiService = {
         return response.json();
     },
 
-    async deleteCachedStems(songName?: string): Promise<{ success: boolean; message: string }> {
-        const params = songName ? `?songName=${encodeURIComponent(songName)}` : '';
-        const response = await fetch(buildUrl(`/api/stems${params}`), {
+    /**
+     * 🗑️ 3. Correctly routes delete calls to /api/stems/group/{songName}
+     */
+    async deleteCachedStems(songName: string): Promise<{ success: boolean; deleted_count: number }> {
+        const endpoint = `/api/stems/group/${encodeURIComponent(songName)}`;
+        const response = await fetch(buildUrl(endpoint), {
             method: 'DELETE',
-            headers: this.getHeaders(), // 🚀 Injected Session Header
+            headers: this.getHeaders(),
         });
 
         if (!response.ok) {
