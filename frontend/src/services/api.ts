@@ -1,20 +1,22 @@
 import type { AudioStem } from '../types';
 
 // Use the current Render backend directly in production to avoid CORS issues caused by older hosts.
-const BACKEND_URL = import.meta.env.PROD ? 'https://audio-mixer-g5ha.onrender.com' : 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'https://audio-mixer-g5ha.onrender.com';
 
 /**
  * 🆔 Retrieves or generates a unique persistent session ID for this browser.
  * This ensures the user stays locked into their private workspace folder.
  */
-function getSessionId(): string {
-    let sessionId = localStorage.getItem("studio_session_id");
+export const getSessionId = (): string => {
+    let sessionId = localStorage.getItem("x_session_id");
     if (!sessionId) {
-        sessionId = crypto.randomUUID(); // Generates a clean unique string (UUID v4)
-        localStorage.setItem("studio_session_id", sessionId);
+        sessionId = typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem("x_session_id", sessionId);
     }
     return sessionId;
-}
+};
 
 const buildUrl = (path: string) => {
     if (!path) return BACKEND_URL || '/';
@@ -45,24 +47,22 @@ export const ApiService = {
         try {
             const response = await fetch(buildUrl('/api/stems'), {
                 method: "GET",
-                headers: this.getHeaders() // 🚀 Injected Session Header
+                headers: this.getHeaders()
             });
             if (!response.ok) throw new Error('Failed to synchronize stems pool.');
 
             const data = await response.json();
             const sessionId = getSessionId();
 
-            // Map incoming database items to match our TypeScript timeline UI attributes
             return data.map((item: any) => ({
                 id: item.id,
                 songName: item.song_name,
                 stemType: item.stem_type,
                 duration: item.duration_seconds,
-                // 🚀 FIX: Update the URL route so the audio player drills into your private folder path
                 fileUrl: buildUrl(`/stems/${sessionId}/${item.filename}`),
                 color: this.getStemColor(item.stem_type),
-                bpm: Math.round(item.bpm), 
-                key: item.key,            
+                bpm: Math.round(item.bpm),
+                key: item.key,
                 onsetOffsetSeconds: item.onset_offset_seconds ?? 0
             }));
         } catch (error) {
@@ -72,17 +72,17 @@ export const ApiService = {
     },
 
     /**
-     * 2. Sends the exact layout configuration layout back to Python to cook up the final WAV mix
+     * 2. Sends the layout configuration back to Python to cook up the final WAV mix
      */
     async renderMashupMatrix(clips: any[]): Promise<{ success: boolean; downloadUrl?: string }> {
         try {
             const response = await fetch(buildUrl('/api/mix'), {
                 method: 'POST',
-                headers: this.getHeaders({ 'Content-Type': 'application/json' }), // 🚀 Injected Session Header
+                headers: this.getHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ clips })
             });
 
-            if (!response.ok) throw new Error('Backend failed to render the timeline array matrix.');
+            if (!response.ok) throw new Error('Backend failed to render timeline matrix.');
             const data = await response.json();
             return {
                 ...data,
@@ -94,7 +94,6 @@ export const ApiService = {
         }
     },
 
-    // Helper mapping UI themes to specific musical bands
     getStemColor(type: string): string {
         switch (type) {
             case 'vocals': return 'bg-pink-500/80 border-pink-400';
@@ -110,8 +109,8 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload'), {
             method: "POST",
-            headers: this.getHeaders(), // 🚀 Injected Session Header
-            body: formData, 
+            headers: this.getHeaders(),
+            body: formData,
         });
 
         if (!response.ok) {
@@ -128,7 +127,7 @@ export const ApiService = {
 
         const response = await fetch(buildUrl('/api/upload/song'), {
             method: "POST",
-            headers: this.getHeaders(), // 🚀 Injected Session Header
+            headers: this.getHeaders(),
             body: formData,
         });
 
@@ -140,18 +139,31 @@ export const ApiService = {
         return response.json();
     },
 
-    async deleteCachedStems(songName?: string): Promise<{ success: boolean; message: string }> {
-        const params = songName ? `?songName=${encodeURIComponent(songName)}` : '';
-        const response = await fetch(buildUrl(`/api/stems${params}`), {
-            method: 'DELETE',
-            headers: this.getHeaders(), // 🚀 Injected Session Header
-        });
+    /**
+     * 🗑️ 3. Correctly routes delete calls to /api/stems/group/{songName}
+     */
+    async deleteCachedStems(songName?: string): Promise<{ success: boolean; deleted_count: number }> {
+        // 1. If songName is provided and non-empty, target that specific group
+        // 2. Otherwise, target the 'all' endpoint to clear the full user session cache
+        const endpoint = (songName && songName.trim() !== '')
+            ? `/api/stems/group/${encodeURIComponent(songName.trim())}`
+            : `/api/stems/all`;
 
-        if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.detail || 'Failed to delete cached stems.');
+        try {
+            const response = await fetch(buildUrl(endpoint), {
+                method: 'DELETE',
+                headers: this.getHeaders(),
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to delete cached stems.' }));
+                throw new Error(errData.detail || 'Failed to delete cached stems.');
+            }
+
+            return await response.json();
+        } catch (err) {
+            console.error("Error in deleteCachedStems:", err);
+            return { success: false, deleted_count: 0 };
         }
-
-        return response.json();
-    }
+    },
 };

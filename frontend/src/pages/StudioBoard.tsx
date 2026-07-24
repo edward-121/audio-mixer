@@ -3,6 +3,7 @@ import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
 import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
 const PIXELS_PER_SECOND = 30;
 
@@ -89,7 +90,6 @@ export default function StudioBoard() {
   }, [stemsPool]);
 
   useEffect(() => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
     const eventSource = new EventSource(`${API_BASE_URL}/api/stems/events`);
 
     eventSource.onmessage = async (event) => {
@@ -238,24 +238,54 @@ export default function StudioBoard() {
   };
 
   const handleDeleteStemGroup = async (songName: string) => {
-    if (!window.confirm(`Delete all cached stems for ${songName}?`)) return;
+    try {
+      // Pass songName to delete just this specific group
+      const result = await ApiService.deleteCachedStems(songName);
 
-    const result = await ApiService.deleteCachedStems(songName);
-    if (result.success) {
-      const activeStems = await ApiService.getAvailableStems();
-      setStemsPool(activeStems);
-      setClips(prev => prev.filter(clip => clip.stem.songName !== songName));
+      if (result.success) {
+        console.log(`Successfully deleted stem group: ${songName}`);
+
+        // Refresh available stems from backend
+        const freshStems = await ApiService.getAvailableStems();
+        setStemsPool(freshStems);
+
+        // Remove any clips from the timeline board that belonged to this song
+        setClips((prevClips) =>
+          prevClips.filter((clip) => clip.stem.songName !== songName)
+        );
+      } else {
+        console.error(`Failed to delete group: ${songName}`);
+      }
+    } catch (err) {
+      console.error("Error deleting stem group:", err);
     }
   };
 
   const handleClearAllStems = async () => {
-    if (!window.confirm("Clear all cached stems from the studio?")) return;
+    if (!window.confirm("Are you sure you want to delete ALL cached audio stems from your session?")) {
+      return;
+    }
 
-    const result = await ApiService.deleteCachedStems();
-    if (result.success) {
-      const activeStems = await ApiService.getAvailableStems();
-      setStemsPool(activeStems);
-      setClips([]);
+    // Stop playback if playing so no ghost audio keeps playing
+    if (isPlaying) {
+      handleStopPreview();
+    }
+
+    try {
+      const result = await ApiService.deleteCachedStems(); // Targets /api/stems/all
+
+      if (result.success) {
+        // Refresh available stems from backend
+        const activeStems = await ApiService.getAvailableStems();
+        setStemsPool(activeStems);
+
+        // Clear timeline clips from the UI board
+        setClips([]);
+      } else {
+        alert("Failed to clear cached stems. Please check server logs.");
+      }
+    } catch (error) {
+      console.error("Failed to clear stems:", error);
     }
   };
 

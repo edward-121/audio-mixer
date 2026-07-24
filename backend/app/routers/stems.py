@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import urllib.parse
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pathlib import Path
 from app.dependencies import get_session_cache_dir
@@ -121,3 +122,72 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
         print(f"[UPLOAD ERROR] Direct stem processing failed: {e}")
         if os.path.exists(destination_path): os.remove(destination_path)
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/stems/group/{song_name}")
+async def delete_stem_group(
+    song_name: str, 
+    session_cache: str = Depends(get_session_cache_dir)
+):
+    """Deletes all stems, full audio files, and metadata JSON files matching a song name."""
+    decoded_query = urllib.parse.unquote(song_name).strip().lower()
+    clean_query = decoded_query.replace("_", " ").replace("-", " ")
+    
+    print(f"[DELETE GROUP] Target directory: {session_cache}")
+    print(f"[DELETE GROUP] Request received to remove tracks matching: '{song_name}' (Cleaned: '{clean_query}')")
+    deleted_count = 0
+    
+    if os.path.exists(session_cache):
+        files = os.listdir(session_cache)
+        print(f"[DELETE GROUP] Files currently in session directory: {files}")
+
+        for file in files:
+            file_lower = file.lower()
+            # Strip known extensions cleanly
+            base_filename = (
+                file_lower.replace(".meta.json", "")
+                .replace(".mp3", "")
+                .replace(".wav", "")
+                .replace(".ogg", "")
+                .replace("_", " ")
+                .replace("-", " ")
+            )
+
+            if clean_query in base_filename:
+                file_path = os.path.join(session_cache, file)
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"  └─ 🗑️ Deleted file: {file}")
+                except Exception as e:
+                    print(f"[DELETE ERROR] Could not remove {file}: {e}")
+
+    print(f"[DELETE GROUP] Finished. Total files removed: {deleted_count}")
+
+    import sys
+    main_mod = sys.modules.get("main") or sys.modules.get("app.main")
+    if main_mod and hasattr(main_mod, "notify_clients_stems_updated"):
+        main_mod.notify_clients_stems_updated()
+
+    return {"success": True, "deleted_count": deleted_count}
+
+@router.delete("/stems/all")
+async def clear_all_session_stems(
+    session_cache: str = Depends(get_session_cache_dir)
+):
+    """Wipes all files inside the active user's session cache directory."""
+    deleted_count = 0
+
+    if os.path.exists(session_cache):
+        for item in os.listdir(session_cache):
+            item_path = os.path.join(session_cache, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                    deleted_count += 1
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                    deleted_count += 1
+            except Exception as e:
+                print(f"[CLEAR ALL ERROR] Failed to delete {item_path}: {e}")
+
+    return {"success": True, "deleted_count": deleted_count}
