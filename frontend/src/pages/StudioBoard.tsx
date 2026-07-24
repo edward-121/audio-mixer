@@ -276,7 +276,7 @@ export default function StudioBoard() {
   const handleClearAllStems = async () => {
     if (!window.confirm("Clear all cached stems from the studio?")) return;
 
-    const result = await ApiService.deleteCachedStems();
+    const result = await ApiService.deleteCachedStems('');
     if (result.success) {
       const activeStems = await ApiService.getAvailableStems();
       setStemsPool(activeStems);
