@@ -250,21 +250,14 @@ export default function StudioBoard() {
 
   const handleDeleteStemGroup = async (songName: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/stems/group/${encodeURIComponent(songName)}`, {
-        method: "DELETE",
-        headers: {
-          "X-Session-ID": getSessionId(),
-        },
-      });
+      const success = await ApiService.deleteStemGroup(songName);
 
-      if (response.ok) {
-        console.log(`Deleted stem group: ${songName}`);
-
-        // Refresh frontend state
+      if (success) {
+        console.log(`Successfully deleted stem group: ${songName}`);
         const freshStems = await ApiService.getAvailableStems();
         setStemsPool(freshStems);
       } else {
-        console.error(`Delete failed with status: ${response.status}`);
+        console.error(`Failed to delete group: ${songName}`);
       }
     } catch (err) {
       console.error("Error deleting stem group:", err);

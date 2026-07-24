@@ -1,20 +1,22 @@
 import type { AudioStem } from '../types';
 
 // Use the current Render backend directly in production to avoid CORS issues caused by older hosts.
-const BACKEND_URL = import.meta.env.PROD ? 'https://audio-mixer-g5ha.onrender.com' : 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'https://audio-mixer-g5ha.onrender.com';
 
 /**
  * 🆔 Retrieves or generates a unique persistent session ID for this browser.
  * This ensures the user stays locked into their private workspace folder.
  */
-function getSessionId(): string {
-    let sessionId = localStorage.getItem("studio_session_id");
+export const getSessionId = (): string => {
+    let sessionId = localStorage.getItem("x_session_id");
     if (!sessionId) {
-        sessionId = crypto.randomUUID(); // Generates a clean unique string (UUID v4)
-        localStorage.setItem("studio_session_id", sessionId);
+        sessionId = typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem("x_session_id", sessionId);
     }
     return sessionId;
-}
+};
 
 const buildUrl = (path: string) => {
     if (!path) return BACKEND_URL || '/';
@@ -59,8 +61,8 @@ export const ApiService = {
                 duration: item.duration_seconds,
                 fileUrl: buildUrl(`/stems/${sessionId}/${item.filename}`),
                 color: this.getStemColor(item.stem_type),
-                bpm: Math.round(item.bpm), 
-                key: item.key,            
+                bpm: Math.round(item.bpm),
+                key: item.key,
                 onsetOffsetSeconds: item.onset_offset_seconds ?? 0
             }));
         } catch (error) {
@@ -108,7 +110,7 @@ export const ApiService = {
         const response = await fetch(buildUrl('/api/upload'), {
             method: "POST",
             headers: this.getHeaders(),
-            body: formData, 
+            body: formData,
         });
 
         if (!response.ok) {
@@ -153,5 +155,23 @@ export const ApiService = {
         }
 
         return response.json();
-    }
+    },
+
+    deleteStemGroup: async (songName: string): Promise<boolean> => {
+        try {
+            const response = await fetch(
+                `${BACKEND_URL}/api/stems/group/${encodeURIComponent(songName)}`,
+                {
+                    method: "DELETE",
+                    headers: {
+                        "X-Session-ID": getSessionId(),
+                    },
+                }
+            );
+            return response.ok;
+        } catch (err) {
+            console.error("Delete request failed:", err);
+            return false;
+        }
+    },
 };
