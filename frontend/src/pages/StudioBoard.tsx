@@ -24,17 +24,6 @@ const STEM_BUTTONS: Array<{ key: StemType; label: string; laneIndex: number }> =
 
 const KEY_OPTIONS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'Cm', 'Dm', 'Em', 'Fm', 'Gm', 'Am', 'Bm'];
 
-const getSessionId = (): string => {
-  let sessionId = localStorage.getItem("x_session_id");
-  if (!sessionId) {
-    sessionId = typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    localStorage.setItem("x_session_id", sessionId);
-  }
-  return sessionId;
-};
-
 export default function StudioBoard() {
   const [stemsPool, setStemsPool] = useState<AudioStem[]>([]);
   const [clips, setClips] = useState<TimelineClip[]>([]);
