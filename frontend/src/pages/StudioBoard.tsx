@@ -239,20 +239,23 @@ export default function StudioBoard() {
 
   const handleDeleteStemGroup = async (songName: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/stems/group/${encodeURIComponent(songName)}`, {
+      const API_BASE = import.meta.env.VITE_API_URL || "https://audio-mixer-g5ha.onrender.com";
+
+      const response = await fetch(`${API_BASE}/api/stems/group/${encodeURIComponent(songName)}`, {
         method: "DELETE",
       });
 
       if (response.ok) {
-        console.log(`Successfully deleted stem group: ${songName}`);
+        console.log(`Deleted stem group: ${songName}`);
 
-        const updatedStems = await ApiService.getAvailableStems();
-        setStemsPool(updatedStems);
+        // Refresh the UI list
+        const freshStems = await ApiService.getAvailableStems();
+        setStemsPool(freshStems);
       } else {
-        console.error("Failed to delete stem group from backend.");
+        console.error(`Delete failed with status: ${response.status}`);
       }
-    } catch (error) {
-      console.error("Error executing delete:", error);
+    } catch (err) {
+      console.error("Error deleting stem group:", err);
     }
   };
 
