@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
-import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus } from 'lucide-react';
+import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff } from 'lucide-react';
 
 const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
 const PIXELS_PER_SECOND = 30;
@@ -397,7 +397,7 @@ export default function StudioBoard() {
 
     const labelNode = data.domElement.querySelector('.clip-time-label');
     if (labelNode) {
-      labelNode.textContent = `Starts at: ${newStartTime.toFixed(1)}s`;
+      labelNode.textContent = `${newStartTime.toFixed(1)}s`;
     }
   };
 
@@ -824,7 +824,11 @@ export default function StudioBoard() {
                           <div className="flex justify-between items-center gap-2">
                             <div className="flex flex-col min-w-0 flex-1">
                               <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
-                              <span className="clip-time-label text-[9px] font-mono opacity-70 truncate">Starts at: {clip.startTime.toFixed(1)}s</span>
+                              <div className="flex items-center gap-1.5 text-[9px] font-mono opacity-70">
+                                <span className="clip-time-label">{clip.startTime.toFixed(1)}s</span>
+                                <span>•</span>
+                                <span>{formatTimeLabel(clip.duration ?? clip.stem.duration)}</span>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1 flex-shrink-0">
@@ -845,7 +849,7 @@ export default function StudioBoard() {
                                 className={`p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-neutral-700 hover:text-white transition z-50 cursor-pointer ${clip.muted ? 'bg-yellow-700 text-black' : ''}`}
                                 title={clip.muted ? 'Unmute track' : 'Mute track'}
                               >
-                                {clip.muted ? '🔈' : '🔇'}
+                                {clip.muted ? <VolumeOff className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                               </button>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
