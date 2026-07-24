@@ -148,7 +148,11 @@ def enqueue_metadata_analysis(file_path: str):
         print(f"[THREAD] Background worker thread spawned for {Path(file_path).name}")
         try:
             bpm, key_signature, onset_offset_seconds = analyze_audio_properties(file_path)
-            
+        
+            if not os.path.exists(file_path):
+                print(f"[THREAD CANCELLED] {Path(file_path).name} was deleted during analysis. Skipping write.")
+                return
+
             # Save the real, calculated values directly to disk
             save_cached_metadata_from_path(file_path, bpm, key_signature, onset_offset_seconds)
             print(f"[THREAD SUCCESS] Overwrote cache for {Path(file_path).name} with true values: {bpm} BPM | Key: {key_signature}")

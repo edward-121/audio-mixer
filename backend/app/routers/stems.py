@@ -128,31 +128,33 @@ async def delete_stem_group(
     song_name: str, 
     session_cache: str = Depends(get_session_cache_dir)
 ):
-    """Deletes all stems, audio files, and metadata JSON files matching a song name"""
-    decoded_song_name = urllib.parse.unquote(song_name).strip()
-    print(f"[DELETE GROUP] Removing all stems matching query: '{decoded_song_name}'")
+    """Deletes all stems, full audio files, and metadata JSON files matching a song name."""
+    decoded_query = urllib.parse.unquote(song_name).strip().lower()
+    clean_query = decoded_query.replace("_", " ").replace("-", " ")
     
-    # Split query into words to match partial names (e.g., "Bones" matches "bones.mp3", "bones_vocals.wav")
-    query_tokens = [token.lower() for token in decoded_song_name.replace("_", " ").split() if token]
+    print(f"[DELETE GROUP] Request received to remove tracks matching: '{song_name}' (Cleaned: '{clean_query}')")
     deleted_count = 0
     
     if os.path.exists(session_cache):
-        for file in os.listdir(session_cache):
+        files = os.listdir(session_cache)
+        print(f"[DELETE GROUP] Files currently in session directory: {files}")
+
+        for file in files:
             file_lower = file.lower()
-            
-            # Match if ANY key word from the song name exists in the filename
-            if any(token in file_lower for token in query_tokens):
+            # Remove extension (.mp3, .wav, .meta.json)
+            base_filename = file_lower.replace(".meta.json", "").replace(".mp3", "").replace(".wav", "").replace(".ogg", "").replace("_", " ").replace("-", " ")
+
+            if clean_query in base_filename or base_filename in clean_query:
                 file_path = os.path.join(session_cache, file)
                 try:
                     os.remove(file_path)
                     deleted_count += 1
-                    print(f"  └─ Successfully Deleted: {file}")
+                    print(f"  └─ 🗑️ Deleted file: {file}")
                 except Exception as e:
                     print(f"[DELETE ERROR] Could not remove {file}: {e}")
 
     print(f"[DELETE GROUP] Finished. Total files removed: {deleted_count}")
 
-    # Trigger SSE update so all frontend clients refresh automatically
     import sys
     main_mod = sys.modules.get("main") or sys.modules.get("app.main")
     if main_mod and hasattr(main_mod, "notify_clients_stems_updated"):
