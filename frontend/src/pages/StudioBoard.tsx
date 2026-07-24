@@ -250,19 +250,17 @@ export default function StudioBoard() {
 
   const handleDeleteStemGroup = async (songName: string) => {
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || "https://audio-mixer-g5ha.onrender.com";
-
-      const response = await fetch(`${API_BASE}/api/stems/group/${encodeURIComponent(songName)}`, {
+      const response = await fetch(`${API_BASE_URL}/api/stems/group/${encodeURIComponent(songName)}`, {
         method: "DELETE",
         headers: {
-          "X-Session-ID": getSessionId(), // 👈 Passes the required session header!
+          "X-Session-ID": getSessionId(),
         },
       });
 
       if (response.ok) {
         console.log(`Deleted stem group: ${songName}`);
 
-        // Refresh the UI list
+        // Refresh frontend state
         const freshStems = await ApiService.getAvailableStems();
         setStemsPool(freshStems);
       } else {

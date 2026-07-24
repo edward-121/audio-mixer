@@ -132,6 +132,7 @@ async def delete_stem_group(
     decoded_query = urllib.parse.unquote(song_name).strip().lower()
     clean_query = decoded_query.replace("_", " ").replace("-", " ")
     
+    print(f"[DELETE GROUP] Target directory: {session_cache}")
     print(f"[DELETE GROUP] Request received to remove tracks matching: '{song_name}' (Cleaned: '{clean_query}')")
     deleted_count = 0
     
@@ -141,10 +142,17 @@ async def delete_stem_group(
 
         for file in files:
             file_lower = file.lower()
-            # Remove extension (.mp3, .wav, .meta.json)
-            base_filename = file_lower.replace(".meta.json", "").replace(".mp3", "").replace(".wav", "").replace(".ogg", "").replace("_", " ").replace("-", " ")
+            # Strip known extensions cleanly
+            base_filename = (
+                file_lower.replace(".meta.json", "")
+                .replace(".mp3", "")
+                .replace(".wav", "")
+                .replace(".ogg", "")
+                .replace("_", " ")
+                .replace("-", " ")
+            )
 
-            if clean_query in base_filename or base_filename in clean_query:
+            if clean_query in base_filename:
                 file_path = os.path.join(session_cache, file)
                 try:
                     os.remove(file_path)
