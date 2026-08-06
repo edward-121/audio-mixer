@@ -54,7 +54,7 @@ async def upload_full_song(file: UploadFile = File(...), session_cache: str = De
     try:
         with open(temp_upload_path, "wb") as buffer: buffer.write(await file.read())
         if not run_demucs_splitter(temp_upload_path, cache_dir=session_cache):
-            raise HTTPException(status_code=500, detail="Demucs engine failed.")
+            raise HTTPException(status_code=500, detail="Current Render Tier does not support this function, try uploading just a single stem instead")
         if os.path.exists(temp_upload_path): os.remove(temp_upload_path)
         return {"success": True, "message": "Song successfully isolated into private session stems!"}
     except Exception as e:
@@ -104,11 +104,9 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
         # Run calculation with 8-second limit
         bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=8)
         
-        # 🚀 CHANGE: Only write to cache immediately if the computation actually finished (didn't fall back to exactly 120/C)
         if bpm != 120.0 or key_sig != "C" or onset_offset_seconds != 0.0:
             save_cached_metadata_from_path(destination_path, bpm, key_sig, onset_offset_seconds)
-        
-        # Always trigger the background thread to handle timeouts or double-check the values
+
         enqueue_metadata_analysis(destination_path)
         
         return {

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#171717" />
+
+  <!-- Double Eighth Note (#a855f7) -->
+  <g fill="#a855f7">
+    <!-- Connecting Beam -->
+    <polygon points="176,130 368,96 368,142 176,176" />
+    
+    <!-- Left Stem -->
+    <rect x="176" y="130" width="20" height="200" rx="4" />
+    
+    <!-- Right Stem -->
+    <rect x="348" y="96" width="20" height="200" rx="4" />
+    
+    <!-- Left Note Head -->
+    <ellipse cx="150" cy="326" rx="46" ry="32" transform="rotate(-22 150 326)" />
+    
+    <!-- Right Note Head -->
+    <ellipse cx="322" cy="292" rx="46" ry="32" transform="rotate(-22 322 292)" />
+  </g>
+</svg>
