@@ -857,7 +857,6 @@ export default function StudioBoard() {
 
             <div className="flex flex-col gap-4">
               {lanes.map((lane, laneIdx) => {
-                // Safe extraction for object vs. string formats
                 const laneLabel = typeof lane === 'string' ? lane : lane.label;
                 const IconComponent = typeof lane === 'string' ? null : lane.icon;
 

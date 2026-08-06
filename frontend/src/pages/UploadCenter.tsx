@@ -71,7 +71,7 @@ export default function UploadCenter() {
   return (
     <div className="flex flex-col items-center justify-center min-h-full w-full bg-neutral-950 p-6 text-white select-none">
       <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl p-8 shadow-2xl flex flex-col gap-6">
-        
+
         <div className="text-center">
           <div className="inline-flex p-3 bg-purple-950/40 rounded-xl border border-purple-900/40 text-purple-400 mb-3">
             <Music className="w-6 h-6" />
@@ -89,11 +89,10 @@ export default function UploadCenter() {
           onDragLeave={handleDrag}
           onDrop={handleDrop}
           onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className={`relative border-2 border-dashed rounded-xl p-12 transition-all text-center flex flex-col items-center justify-center gap-3 group ${
-            isProcessing ? 'border-purple-600 bg-purple-950/5 cursor-not-allowed' : 
-            dragActive ? 'border-purple-500 bg-purple-950/10 scale-[0.99]' : 
-            'border-neutral-800 hover:border-neutral-700 bg-neutral-950/30 cursor-pointer'
-          }`}
+          className={`relative border-2 border-dashed rounded-xl p-12 transition-all text-center flex flex-col items-center justify-center gap-3 group ${isProcessing ? 'border-purple-600 bg-purple-950/5 cursor-not-allowed' :
+              dragActive ? 'border-purple-500 bg-purple-950/10 scale-[0.99]' :
+                'border-neutral-800 hover:border-neutral-700 bg-neutral-950/30 cursor-pointer'
+            }`}
         >
           <input
             ref={fileInputRef}
@@ -137,11 +136,10 @@ export default function UploadCenter() {
 
         {/* 🎛️ STATUS NOTIFICATION POPUPS */}
         {status.type !== 'idle' && (
-          <div className={`flex items-start gap-3 p-4 rounded-xl border text-sm animate-fade-in ${
-            status.type === 'success' 
-              ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' 
+          <div className={`flex items-start gap-3 p-4 rounded-xl border text-sm animate-fade-in ${status.type === 'success'
+              ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400'
               : 'bg-red-950/20 border-red-900/50 text-red-400'
-          }`}>
+            }`}>
             {status.type === 'success' ? (
               <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             ) : (
@@ -152,7 +150,7 @@ export default function UploadCenter() {
             </div>
           </div>
         )}
-        
+
       </div>
     </div>
   );
