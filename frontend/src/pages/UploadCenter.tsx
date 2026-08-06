@@ -78,7 +78,7 @@ export default function UploadCenter() {
           </div>
           <h2 className="text-xl font-bold tracking-tight">AI Multi-Stem Splitter Center</h2>
           <p className="text-sm text-neutral-400 mt-1">
-            Drop any complete master song below. Our local machine neural network model will break it down into 4 isolated audio mixdown layers.
+            Drop any complete master song below. The local machine will break it down into 4 isolated audio mixdown layers.
           </p>
         </div>
 
@@ -129,7 +129,7 @@ export default function UploadCenter() {
                 Drag & drop full track file here, or <span className="text-purple-400 underline decoration-purple-400/30">browse local files</span>
               </span>
               <span className="text-xs text-neutral-600 font-mono mt-1 uppercase tracking-wider">
-                Supported: WAV, MP3, OGG up to 20MB
+                Supported: WAV, MP3
               </span>
             </div>
           )}

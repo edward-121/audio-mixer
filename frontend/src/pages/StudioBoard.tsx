@@ -1,10 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { AudioStem, TimelineClip } from '../types';
 import { ApiService } from '../services/api';
-import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff } from 'lucide-react';
+import { Play, Square, Layers, Sparkles, Loader2, Trash2, RotateCcw, Plus, Volume2, VolumeOff, Mic, Drum, Guitar, Piano } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-const DEFAULT_LANES = ['🎤 Vocals', '🥁 Drums', '🎸 Bassline', '🎹 Melodies / Other'];
+const DEFAULT_LANES = [
+  { label: 'Vocals', icon: Mic },
+  { label: 'Drums', icon: Drum },
+  { label: 'Bassline', icon: Guitar },
+  { label: 'Melodies / Other', icon: Piano },
+];
 const PIXELS_PER_SECOND = 30;
 
 type StemType = AudioStem['stemType'];
@@ -27,7 +32,9 @@ const KEY_OPTIONS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#',
 export default function StudioBoard() {
   const [stemsPool, setStemsPool] = useState<AudioStem[]>([]);
   const [clips, setClips] = useState<TimelineClip[]>([]);
-  const [lanes, setLanes] = useState<string[]>(DEFAULT_LANES);
+  type LaneConfig = { label: string; icon?: React.ComponentType<{ className?: string }> };
+
+  const [lanes, setLanes] = useState<LaneConfig[]>(DEFAULT_LANES);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -214,9 +221,9 @@ export default function StudioBoard() {
   };
 
   const handleAddNewCustomLane = () => {
-    const laneName = prompt("Enter a custom name for your new mixer track row lane:", `🎛️ Track Layer ${lanes.length + 1}`);
+    const laneName = prompt("Enter a custom name for your new mixer track row lane:", `Track Layer ${lanes.length + 1}`);
     if (laneName && laneName.trim() !== "") {
-      setLanes([...lanes, laneName.trim()]);
+      setLanes([...lanes, { label: laneName.trim() }]);
     }
   };
 
@@ -849,123 +856,161 @@ export default function StudioBoard() {
             />
 
             <div className="flex flex-col gap-4">
-              {lanes.map((laneTitle, laneIdx) => (
-                <div key={laneIdx} ref={(node) => { laneRefs.current[laneIdx] = node; }} className="h-24 bg-neutral-900/10 border border-neutral-900/40 rounded-xl relative flex items-center shadow-inner">
-                  <div className="absolute left-0 top-0 bottom-0 w-44 bg-neutral-900/95 backdrop-blur-md px-4 flex items-center justify-between border-r border-neutral-800 text-xs font-bold tracking-wide text-neutral-300 z-40 shadow-lg">
-                    <span className="truncate pr-2">{laneTitle}</span>
-                    <button
-                      onClick={() => handleRemoveLane(laneIdx)}
-                      className="text-neutral-500 hover:text-red-400 transition"
-                      title="Delete lane"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+              {lanes.map((lane, laneIdx) => {
+                // Safe extraction for object vs. string formats
+                const laneLabel = typeof lane === 'string' ? lane : lane.label;
+                const IconComponent = typeof lane === 'string' ? null : lane.icon;
 
-                  <div className="absolute inset-0 left-44 h-full z-10">
-                    {clips
-                      .filter(c => c.laneIndex === laneIdx)
-                      .map(clip => (
-                        <div
-                          key={clip.id}
-                          onPointerDown={(e) => handlePointerDown(e, clip)}
-                          onPointerMove={handlePointerMove}
-                          onPointerUp={handlePointerUp}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            removeClipFromTimeline(clip.id);
-                          }}
-                          className={`absolute h-16 top-4 rounded-lg border p-3 flex flex-col justify-between cursor-grab active:cursor-grabbing shadow-md group select-none touch-none will-change-transform ${clip.stem.color} ${dragPreview?.clipId === clip.id ? 'border-purple-400 ring-2 ring-purple-500/40 shadow-[0_0_0_1px_rgba(168,85,247,0.35)]' : ''}`}
-                          style={{
-                            left: `${clip.startTime * PIXELS_PER_SECOND}px`,
-                            width: `${(clip.duration ?? clip.stem.duration) * PIXELS_PER_SECOND}px`,
-                          }}
-                        >
-                          <div className="flex justify-between items-center gap-2">
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
-                              <div className="flex items-center gap-1.5 text-[9px] font-mono opacity-70">
-                                <span className="clip-time-label">{clip.startTime.toFixed(1)}s</span>
-                                <span>•</span>
-                                <span>{formatTimeLabel(clip.duration ?? clip.stem.duration)}</span>
+                return (
+                  <div
+                    key={laneIdx}
+                    ref={(node) => {
+                      laneRefs.current[laneIdx] = node;
+                    }}
+                    className="h-24 bg-neutral-900/10 border border-neutral-900/40 rounded-xl relative flex items-center shadow-inner"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-44 bg-neutral-900/95 backdrop-blur-md px-4 flex items-center justify-between border-r border-neutral-800 text-xs font-bold tracking-wide text-neutral-300 z-40 shadow-lg">
+                      {/* Track Title and Icon */}
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
+                        {IconComponent && <IconComponent className="w-4 h-4 text-purple-400 shrink-0" />}
+                        <span className="truncate">{laneLabel}</span>
+                      </div>
+
+                      {/* Delete Lane Button */}
+                      <button
+                        onClick={() => handleRemoveLane(laneIdx)}
+                        className="text-neutral-500 hover:text-red-400 transition"
+                        title="Delete lane"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="absolute inset-0 left-44 h-full z-10">
+                      {clips
+                        .filter((c) => c.laneIndex === laneIdx)
+                        .map((clip) => (
+                          <div
+                            key={clip.id}
+                            onPointerDown={(e) => handlePointerDown(e, clip)}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={handlePointerUp}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              removeClipFromTimeline(clip.id);
+                            }}
+                            className={`absolute h-16 top-4 rounded-lg border p-3 flex flex-col justify-between cursor-grab active:cursor-grabbing shadow-md group select-none touch-none will-change-transform ${clip.stem.color} ${dragPreview?.clipId === clip.id
+                                ? 'border-purple-400 ring-2 ring-purple-500/40 shadow-[0_0_0_1px_rgba(168,85,247,0.35)]'
+                                : ''
+                              }`}
+                            style={{
+                              left: `${clip.startTime * PIXELS_PER_SECOND}px`,
+                              width: `${(clip.duration ?? clip.stem.duration) * PIXELS_PER_SECOND}px`,
+                            }}
+                          >
+                            <div className="flex justify-between items-center gap-2">
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <span className="font-bold text-xs truncate max-w-[140px]">{clip.stem.songName}</span>
+                                <div className="flex items-center gap-1.5 text-[9px] font-mono opacity-70">
+                                  <span className="clip-time-label">{clip.startTime.toFixed(1)}s</span>
+                                  <span>•</span>
+                                  <span>{formatTimeLabel(clip.duration ?? clip.stem.duration)}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <select
+                                  value={clip.keySignature ?? clip.stem.key}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleKeyChange(clip.id, e.target.value)}
+                                  className="rounded border border-black/20 bg-black/30 px-1.5 py-0.5 text-[9px] text-neutral-100 outline-none"
+                                  title="Adjust key"
+                                >
+                                  {KEY_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => toggleMute(clip.id)}
+                                  className={`p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-neutral-700 hover:text-white transition z-50 cursor-pointer ${clip.muted ? 'bg-yellow-700 text-black' : ''
+                                    }`}
+                                  title={clip.muted ? 'Unmute track' : 'Mute track'}
+                                >
+                                  {clip.muted ? <VolumeOff className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => removeClipFromTimeline(clip.id)}
+                                  className="p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-red-600 hover:text-white transition z-50 cursor-pointer"
+                                  title="Delete track"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <select
-                                value={clip.keySignature ?? clip.stem.key}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onChange={(e) => handleKeyChange(clip.id, e.target.value)}
-                                className="rounded border border-black/20 bg-black/30 px-1.5 py-0.5 text-[9px] text-neutral-100 outline-none"
-                                title="Adjust key"
-                              >
-                                {KEY_OPTIONS.map(option => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                              </select>
-                              <button
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={() => toggleMute(clip.id)}
-                                className={`p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-neutral-700 hover:text-white transition z-50 cursor-pointer ${clip.muted ? 'bg-yellow-700 text-black' : ''}`}
-                                title={clip.muted ? 'Unmute track' : 'Mute track'}
-                              >
-                                {clip.muted ? <VolumeOff className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                              </button>
-                              <button
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={() => removeClipFromTimeline(clip.id)}
-                                className="p-1 rounded-md bg-black/30 text-neutral-400 hover:bg-red-600 hover:text-white transition z-50 cursor-pointer"
-                                title="Delete track"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                            <div className="w-full h-3 rounded-sm overflow-hidden">
+                              {waveforms[clip.stem.id] ? (
+                                <div className="flex items-end gap-0.5 h-full">
+                                  {waveforms[clip.stem.id].map((p, i) => (
+                                    <div
+                                      key={i}
+                                      style={{
+                                        width: `${100 / waveforms[clip.stem.id].length}%`,
+                                        height: `${Math.max(3, p * 100)}%`,
+                                      }}
+                                      className={`bg-white/80 ${clip.muted ? 'opacity-30' : ''}`}
+                                    ></div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="w-full h-3 bg-black/20 rounded-sm flex items-center justify-around opacity-40 pointer-events-none">
+                                  {[...Array(20)].map((_, i) => (
+                                    <div
+                                      key={i}
+                                      className="w-[1.5px] bg-white rounded-full"
+                                      style={{ height: `${Math.abs(Math.sin(i * 0.4)) * 100}%` }}
+                                    ></div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          </div>
 
-                          <div className="w-full h-3 rounded-sm overflow-hidden">
-                            {waveforms[clip.stem.id] ? (
-                              <div className="flex items-end gap-0.5 h-full">
-                                {waveforms[clip.stem.id].map((p, i) => (
-                                  <div key={i} style={{ width: `${100 / waveforms[clip.stem.id].length}%`, height: `${Math.max(3, p * 100)}%` }} className={`bg-white/80 ${clip.muted ? 'opacity-30' : ''}`}></div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="w-full h-3 bg-black/20 rounded-sm flex items-center justify-around opacity-40 pointer-events-none">
-                                {[...Array(20)].map((_, i) => (
-                                  <div key={i} className="w-[1.5px] bg-white rounded-full" style={{ height: `${Math.abs(Math.sin(i * 0.4)) * 100}%` }}></div>
-                                ))}
-                              </div>
-                            )}
+                            <div
+                              onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'start')}
+                              onPointerMove={handleClipTrimPointerMove}
+                              onPointerUp={handleClipTrimPointerUp}
+                              className="absolute left-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
+                              title="Trim clip start"
+                            />
+                            <div
+                              onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'end')}
+                              onPointerMove={handleClipTrimPointerMove}
+                              onPointerUp={handleClipTrimPointerUp}
+                              className="absolute right-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
+                              title="Trim clip end"
+                            />
                           </div>
+                        ))}
 
+                      {dragPreview?.laneIndex === laneIdx &&
+                        draggingDataRef.current &&
+                        draggingDataRef.current.id === dragPreview.clipId && (
                           <div
-                            onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'start')}
-                            onPointerMove={handleClipTrimPointerMove}
-                            onPointerUp={handleClipTrimPointerUp}
-                            className="absolute left-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
-                            title="Trim clip start"
+                            className="absolute h-16 top-4 rounded-lg border border-dashed border-white/30 bg-white/10 opacity-40 pointer-events-none"
+                            style={{
+                              left: `${dragPreview.startTime * PIXELS_PER_SECOND}px`,
+                              width: `${(clips.find((c) => c.id === dragPreview.clipId)?.duration ?? 0.5) * PIXELS_PER_SECOND}px`,
+                            }}
                           />
-                          <div
-                            onPointerDown={(e) => handleClipTrimPointerDown(e, clip, 'end')}
-                            onPointerMove={handleClipTrimPointerMove}
-                            onPointerUp={handleClipTrimPointerUp}
-                            className="absolute right-2 top-1/2 z-50 h-10 w-1 -translate-y-1/2 rounded-full bg-white/60 cursor-ew-resize"
-                            title="Trim clip end"
-                          />
-                        </div>
-                      ))}
-                    {dragPreview?.laneIndex === laneIdx && draggingDataRef.current && draggingDataRef.current.id === dragPreview.clipId && (
-                      <div
-                        className="absolute h-16 top-4 rounded-lg border border-dashed border-white/30 bg-white/10 opacity-40 pointer-events-none"
-                        style={{
-                          left: `${dragPreview.startTime * PIXELS_PER_SECOND}px`,
-                          width: `${(clips.find(c => c.id === dragPreview.clipId)?.duration ?? 0.5) * PIXELS_PER_SECOND}px`,
-                        }}
-                      />
-                    )}
+                        )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               <button
                 onClick={handleAddNewCustomLane}

@@ -104,11 +104,9 @@ async def upload_audio_stem(file: UploadFile = File(...), session_cache: str = D
         # Run calculation with 8-second limit
         bpm, key_sig, onset_offset_seconds = analyze_audio_properties_with_timeout(destination_path, timeout_seconds=8)
         
-        # 🚀 CHANGE: Only write to cache immediately if the computation actually finished (didn't fall back to exactly 120/C)
         if bpm != 120.0 or key_sig != "C" or onset_offset_seconds != 0.0:
             save_cached_metadata_from_path(destination_path, bpm, key_sig, onset_offset_seconds)
-        
-        # Always trigger the background thread to handle timeouts or double-check the values
+
         enqueue_metadata_analysis(destination_path)
         
         return {
