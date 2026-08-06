@@ -8,6 +8,6 @@ numpy>=1.26.4
 mutagen==1.48.1
 # demucs is heavy; Render free tier may not support full audio processing reliably
 # Uncomment and test if your runtime allows it:
-# demucs==4.0.0
-# torch==2.5.1
-# torchaudio==2.5.1
+demucs==4.0.0
+torch==2.5.1
+torchaudio==2.5.1
