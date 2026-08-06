@@ -54,7 +54,7 @@ async def upload_full_song(file: UploadFile = File(...), session_cache: str = De
     try:
         with open(temp_upload_path, "wb") as buffer: buffer.write(await file.read())
         if not run_demucs_splitter(temp_upload_path, cache_dir=session_cache):
-            raise HTTPException(status_code=500, detail="Demucs engine failed.")
+            raise HTTPException(status_code=500, detail="Current Render Tier does not support this function, try uploading just a single stem instead")
         if os.path.exists(temp_upload_path): os.remove(temp_upload_path)
         return {"success": True, "message": "Song successfully isolated into private session stems!"}
     except Exception as e:
